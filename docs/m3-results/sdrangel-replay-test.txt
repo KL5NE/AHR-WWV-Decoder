@@ -1,0 +1,9 @@
+# sdrangel-replay-test - run 2026-11-03 15:59 UTC on Ubuntu 24.04 x86_64, GCC 13.3.0, Qt 6.4.2, SDRangel v8.0.0 (0282a596) dev build, Linux. Synthetic signals only.
+
+wrote /tmp/tmp.x5rENTsXE1/wwv.sdriq: 290 s at 48000 S/s, centre 10000000 Hz, carrier at +0 Hz, C/N 20 dB, starts 2026-11-03 14:55:17.000 UTC
+PASS plugin loaded by SDRangel
+PASS channel created
+replaying 230 s of signal (real time)...
+frames accepted 3, rejected 0
+states: ['Decoded', 'Verified', 'Verified']
+PASS decoded minutes match the recording, verified

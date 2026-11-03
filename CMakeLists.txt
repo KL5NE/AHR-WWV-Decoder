@@ -23,6 +23,9 @@ if(AHRWWV_BUILD_TESTS)
     add_executable(wwv_decode_wav tools/decode_wav.cpp)
     target_link_libraries(wwv_decode_wav ahrwwv_core)
 
+    add_executable(wwv_make_sdriq tools/make_sdriq.cpp)
+    target_link_libraries(wwv_make_sdriq ahrwwv_sim)
+
     add_executable(wwv_make_wav tools/make_wav.cpp)
     target_link_libraries(wwv_make_wav ahrwwv_sim)
 

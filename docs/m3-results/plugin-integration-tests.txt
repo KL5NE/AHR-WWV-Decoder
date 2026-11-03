@@ -1,0 +1,30 @@
+# plugin-integration-tests - run 2026-11-03 15:59 UTC on Ubuntu 24.04 x86_64, GCC 13.3.0, Qt 6.4.2, SDRangel v8.0.0 (0282a596) dev build, Linux. Synthetic signals only.
+
+[settings] serialize / deserialize round trip and corrupt data
+[plugin] load the built plugin library with QPluginLoader (lib/plugins/libahrwwvtimedecoder.so)
+    IID sdrangel.channel.ahrwwvtimedecoder | id AHRWWVTimeDecoder | name 'AHR WWV/WWVH Time Decoder' | version 8.0.0
+    loaded/unloaded 20 times
+[baseband] live-style decode through SDRangel channelizer (48 kS/s, carrier +5 kHz)
+  48 kS/s, offset +5000 Hz                     state=Verified    verified@  157s frames 2/0 resets 1 wrong 0/7 maxerr 1.0 ms
+[baseband] other device rates and a negative offset
+  2000000 S/s, offset -250000 Hz               state=Verified    verified@  126s frames 3/0 resets 1 wrong 0/308 maxerr 4.0 ms
+  192000 S/s, offset -20000 Hz                 state=Verified    verified@  126s frames 3/0 resets 1 wrong 0/35 maxerr 2.6 ms
+  62500 S/s, offset +0 Hz                      state=Verified    verified@  126s frames 3/0 resets 1 wrong 0/13 maxerr 3.7 ms
+[baseband] device sample-rate change mid-stream
+  48k -> 96k after 170 s                       state=Verified    verified@  337s frames 4/0 resets 2 wrong 0/19 maxerr 1.6 ms
+[baseband] retune the channel off the carrier and back
+  5000 -> 9000 -> 5000 Hz                      state=Verified    verified@  397s frames 4/0 resets 3 wrong 0/13 maxerr 1.0 ms
+[baseband] decoder disable / enable / reset message
+  disable/enable/reset                         state=Searching   verified@  337s frames 4/0 resets 3 wrong 0/13 maxerr 1.1 ms
+[baseband] signal loss for 3 minutes and reacquisition
+  dropout 200-380 s                            state=Verified    verified@  157s frames 4/4 resets 1 wrong 0/19 maxerr 1.0 ms
+    worst holdover error 1.0 ms
+[baseband] real-time feed with 1.5 s of samples lost (FIFO overflow / USB drop)
+    restarts caused by sample loss: before 0, after 1 (resets 1 -> 2)
+[baseband] incomplete frames: 50 s of signal, then silence
+  50 s signal + 30 s silence                   state=Second lock verified@   -1s frames 0/0 resets 1 wrong 0/0 maxerr 0.0 ms
+[baseband] long run: 60 minutes at 24 kS/s, memory check
+  long run                                     state=Verified    verified@  157s frames 59/0 resets 1 wrong 0/299 maxerr 2.6 ms
+    max RSS after 5 min 57784 kB, at end 57784 kB
+
+80 checks, 0 failed (287 s)

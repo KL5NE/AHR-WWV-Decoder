@@ -125,6 +125,13 @@ public:
     // Group delay of the 100 Hz detector, measured at construction (s).
     double detectorDelay() const;
 
+    // Optional diagnostic tap, called for every ~1 ms envelope sample with the
+    // sample-clock time and the 100 Hz level (coherent once locked) normalized
+    // so that a pulse is ~1.0. Used by the GUI's envelope plot. Pass nullptr
+    // to remove. Survives reset().
+    using EnvelopeTap = void (*)(void* user, double sampleTime, float level);
+    void setEnvelopeTap(EnvelopeTap fn, void* user);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> d;

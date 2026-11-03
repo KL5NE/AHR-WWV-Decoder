@@ -1,0 +1,53 @@
+# core-tests - run 2026-11-03 15:59 UTC on Ubuntu 24.04 x86_64, GCC 13.3.0, Qt 6.4.2, SDRangel v8.0.0 (0282a596) dev build, Linux. Synthetic signals only.
+
+[timecode] known frame 2026-11-02 (day 306) 15:17 UTC
+[timecode] 20000 random encode/decode round trips
+[timecode] corrupted frames are rejected
+[timecode] soft decoding with noise and erasures
+  sigma 0.15: 147/200 decoded, 0 wrong
+  sigma 0.35: 0/200 decoded, 0 wrong
+[timecode] calendar helpers
+[engine] skywave delay estimate, Palmer AK
+  WWV  13.4 ms (2 hops)   WWVH 15.8 ms (2 hops)
+[engine] measured detector delay at 48 kHz: 18.34 ms
+[engine] diagnostic envelope tap (used by the plugin GUI)
+  61000 samples in 61 s, mean pulse level 0.98
+[decoder] clean signal, IQ input, start mid-minute
+  start at :17.2                     state=Verified    decoded@  103s verified@  163s frames ok/bad 2/0 wrong-sec 0/98 max-err 0.31 ms snr 38.1 dB jitter 0.13 ms station WWV
+  start at :44.6                     state=Verified    decoded@   75s verified@  135s frames ok/bad 3/0 wrong-sec 0/125 max-err 0.24 ms snr 24.4 dB jitter 0.27 ms station WWV
+  start at :59.3                     state=Verified    decoded@  121s verified@  181s frames ok/bad 2/0 wrong-sec 0/80 max-err 0.33 ms snr 31.1 dB jitter 0.12 ms station WWV
+[decoder] AM audio input and other sample rates / sample clock errors
+  audio 48 kHz                       state=Verified    decoded@  108s verified@  168s frames ok/bad 2/0 wrong-sec 0/92 max-err 0.29 ms snr 36.4 dB jitter 0.40 ms station WWV
+  IQ 8000 Hz, +40 ppm                state=Verified    decoded@   87s verified@  147s frames ok/bad 3/0 wrong-sec 0/154 max-err 0.31 ms snr 36.8 dB jitter 0.24 ms station WWV
+    measured sample clock +39.5 ppm (valid 1)
+  IQ 44100 Hz, -25 ppm               state=Verified    decoded@   87s verified@  147s frames ok/bad 3/0 wrong-sec 0/154 max-err 0.76 ms snr 36.2 dB jitter 0.15 ms station WWV
+    measured sample clock -24.7 ppm (valid 1)
+  IQ 24000 Hz, +0 ppm                state=Verified    decoded@   87s verified@  147s frames ok/bad 3/0 wrong-sec 0/154 max-err 0.42 ms snr 36.6 dB jitter 0.15 ms station WWV
+    measured sample clock -0.4 ppm (valid 1)
+[decoder] carrier-to-noise sweep (3 kHz bandwidth), 6 minutes each
+  C/N +20 dB                         state=Verified    decoded@  100s verified@  160s frames ok/bad 5/0 wrong-sec 0/260 max-err 0.60 ms snr 27.8 dB jitter 0.48 ms station WWV
+  C/N +10 dB                         state=Verified    decoded@  100s verified@  160s frames ok/bad 5/0 wrong-sec 0/260 max-err 1.25 ms snr 20.4 dB jitter 1.51 ms station WWV
+  C/N +6 dB                          state=Verified    decoded@  100s verified@  160s frames ok/bad 5/0 wrong-sec 0/260 max-err 1.69 ms snr 16.3 dB jitter 2.75 ms station WWV
+  C/N +3 dB                          state=Verified    decoded@  100s verified@  160s frames ok/bad 5/0 wrong-sec 0/260 max-err 1.20 ms snr 12.9 dB jitter 3.78 ms station WWV
+  C/N +0 dB                          state=Verified    decoded@  160s verified@  160s frames ok/bad 4/1 wrong-sec 0/200 max-err 1.79 ms snr 9.2 dB jitter 0.00 ms station Unknown
+  C/N -3 dB                          state=Frame lock  decoded@   -1s verified@   -1s frames ok/bad 0/6 wrong-sec 0/0 max-err 0.00 ms snr 5.4 dB jitter 0.00 ms station Unknown
+[decoder] fading, WWV+WWVH on the same frequency
+  Rayleigh-like fading, C/N 15       state=Decoded     decoded@  260s verified@   -1s frames ok/bad 1/6 wrong-sec 0/100 max-err 0.00 ms snr 24.7 dB jitter 1.14 ms station WWV
+  WWV + WWVH (2.8 ms apart)          state=Verified    decoded@  118s verified@  178s frames ok/bad 4/0 wrong-sec 0/182 max-err 1.43 ms snr 20.3 dB jitter 0.69 ms station WWV+WWVH
+  WWVH only                          state=Verified    decoded@  118s verified@  178s frames ok/bad 2/0 wrong-sec 0/82 max-err 0.33 ms snr 33.1 dB jitter 0.20 ms station WWVH
+[decoder] 3-minute signal loss after lock: holdover and recovery
+  dropout 200-380 s                  state=Verified    decoded@  110s verified@  170s frames ok/bad 4/4 wrong-sec 0/450 max-err 0.38 ms snr 37.6 dB jitter 0.18 ms station WWV
+    holdover seconds 254, max reported uncertainty 11.0 ms
+[decoder] false-lock checks (must never produce a time)
+  noise only, 15 min                 state=Searching   decoded@   -1s verified@   -1s frames ok/bad 0/0 wrong-sec 0/0 max-err 0.00 ms snr 0.0 dB jitter 0.00 ms station Unknown
+  AM station without time code       state=Searching   decoded@   -1s verified@   -1s frames ok/bad 0/0 wrong-sec 0/0 max-err 0.00 ms snr -11.8 dB jitter 0.00 ms station Unknown
+  audio noise only, 10 min           state=Searching   decoded@   -1s verified@   -1s frames ok/bad 0/0 wrong-sec 0/0 max-err 0.00 ms snr 0.0 dB jitter 0.00 ms station Unknown
+[decoder] flags, year rollover, leap day
+  DUT1 -0.3, LSW, DST begins         state=Verified    decoded@   90s verified@  150s frames ok/bad 2/0 wrong-sec 0/110 max-err 0.36 ms snr 28.2 dB jitter 0.16 ms station WWV
+  across 2027 new year               state=Verified    decoded@  100s verified@  160s frames ok/bad 3/0 wrong-sec 0/160 max-err 0.65 ms snr 39.1 dB jitter 0.29 ms station WWV
+  2028 day 366                       state=Verified    decoded@   80s verified@  140s frames ok/bad 2/0 wrong-sec 0/120 max-err 0.36 ms snr 22.7 dB jitter 0.14 ms station WWV
+[decoder] PC clock offset measurement
+  PC clock 250 ms fast               state=Verified    decoded@  105s verified@  165s frames ok/bad 2/0 wrong-sec 0/116 max-err 0.32 ms snr 20.1 dB jitter 0.15 ms station WWV
+    measured offset +250.32 ms +/- 20.6 ms (1 sigma)
+
+83 checks, 0 failed

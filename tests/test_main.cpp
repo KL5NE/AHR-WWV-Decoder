@@ -476,6 +476,31 @@ static void testClockOffset()
     CHECK(r.final.haveClockOffset && std::fabs(r.final.clockOffset - 0.250) < 0.002, "offset %.4f", r.final.clockOffset);
 }
 
+static void testEnvelopeTap()
+{
+    std::printf("[engine] diagnostic envelope tap (used by the plugin GUI)\n");
+    SimConfig sc = baseSim(kNov2 + 5 * 3600 + 12.5);
+    DecoderConfig dc;
+    dc.sampleRate = sc.sampleRate;
+    WwvSim sim(sc);
+    WwvDecoder dec(dc);
+    struct Acc { long n = 0; double maxv = -1e9; double sumHigh = 0; long nHigh = 0; } acc;
+    dec.setEnvelopeTap([](void* u, double, float v) {
+        Acc* a = static_cast<Acc*>(u);
+        a->n++;
+        a->maxv = std::max(a->maxv, double(v));
+        if (v > 0.5) { a->sumHigh += v; a->nHigh++; }
+    }, &acc);
+    std::vector<std::complex<float>> buf;
+    for (int k = 0; k < 60 * 20; k++) { sim.generate(buf, 600); dec.processIQ(buf.data(), buf.size()); }
+    dec.reset(); // the tap must survive reset()
+    for (int k = 0; k < 20; k++) { sim.generate(buf, 600); dec.processIQ(buf.data(), buf.size()); }
+    double meanHigh = acc.nHigh ? acc.sumHigh / acc.nHigh : 0;
+    std::printf("  %ld samples in 61 s, mean pulse level %.2f\n", acc.n, meanHigh);
+    CHECK(acc.n > 60500 && acc.n < 61500, "tap called %ld times", acc.n);
+    CHECK(meanHigh > 0.8 && meanHigh < 1.25, "pulse level %.2f", meanHigh);
+}
+
 int main(int argc, char** argv)
 {
     bool quick = argc > 1 && std::string(argv[1]) == "--quick";
@@ -489,6 +514,7 @@ int main(int argc, char** argv)
         WwvDecoder d;
         std::printf("[engine] measured detector delay at 48 kHz: %.2f ms\n", d.detectorDelay() * 1e3);
     }
+    testEnvelopeTap();
     testClean();
     if (!quick) {
         testAudioAndRates();

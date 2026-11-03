@@ -320,6 +320,8 @@ struct WwvDecoder::Impl {
     DecoderState lastState = DecoderState::Searching;
     std::vector<DecoderEvent> events;
     Biquad chRe[2], chIm[2];
+    WwvDecoder::EnvelopeTap tap = nullptr;
+    void* tapUser = nullptr;
 
     // ---------------------------------------------------------------
     bool phasorValid() const { return secLocked && pUpdates >= 300 && std::abs(P) > 0; }
@@ -400,6 +402,10 @@ struct WwvDecoder::Impl {
                 P += (z - P) * (1.0 / 1500.0);
                 pUpdates++;
             }
+        }
+        if (tap) {
+            double lvl = phasorValid() && href > 0 ? proj(e) / href : (href > 0 ? e.mag / href : e.mag);
+            tap(tapUser, t, float(lvl));
         }
         long w = long(std::floor(t));
         if (w != lastWhole) {
@@ -918,7 +924,11 @@ void WwvDecoder::reset()
 {
     DecoderConfig cfg = d->cfg;
     double delay = d->delay, kOff = d->kOff;
+    WwvDecoder::EnvelopeTap tap = d->tap;
+    void* tapUser = d->tapUser;
     d.reset(new Impl);
+    d->tap = tap;
+    d->tapUser = tapUser;
     d->cfg = cfg;
     d->delay = delay;
     d->kOff = kOff;
@@ -930,6 +940,12 @@ void WwvDecoder::reset()
 }
 
 const DecoderStatus& WwvDecoder::status() const { return d->st; }
+
+void WwvDecoder::setEnvelopeTap(EnvelopeTap fn, void* user)
+{
+    d->tap = fn;
+    d->tapUser = user;
+}
 double WwvDecoder::detectorDelay() const { return d->delay; }
 double WwvDecoder::currentSampleTime() const { return d->lastSampleTime; }
 bool WwvDecoder::utcAt(double t, double& utc) const { return d->utcAt(t, utc); }
