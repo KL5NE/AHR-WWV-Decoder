@@ -118,13 +118,38 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "C:/Qt/6.9.3/msvc2022_64/bin;$env:GITHUB_WORKSPACE/build/bin;$env:PATH"
+          $env:QT_QPA_PLATFORM = "offscreen"
           Push-Location build/bin
           try {
-            .\ahrwwv_plugin_tests.exe "plugins/ahrwwvtimedecoder.dll"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Write-Host "=== Required runtime files ==="
+            Get-Item '.\ahrwwv_plugin_tests.exe', '.\plugins\ahrwwvtimedecoder.dll', '.\sdrbase.dll', '.\sdrgui.dll' |
+              Select-Object Name, Length | Format-Table -AutoSize
+            Write-Host "=== DLL dependencies ==="
+            dumpbin /dependents '.\plugins\ahrwwvtimedecoder.dll'
+            Write-Host "=== Test executable dependencies ==="
+            dumpbin /dependents '.\ahrwwv_plugin_tests.exe'
+            Write-Host "=== Running integration tests ==="
+            $p = Start-Process -FilePath '.\ahrwwv_plugin_tests.exe' -ArgumentList 'plugins/ahrwwvtimedecoder.dll' -WorkingDirectory (Get-Location).Path -Wait -PassThru -NoNewWindow -RedirectStandardOutput 'test-stdout.txt' -RedirectStandardError 'test-stderr.txt'
+            Write-Host "=== Integration test stdout ==="
+            if (Test-Path 'test-stdout.txt') { Get-Content 'test-stdout.txt' }
+            Write-Host "=== Integration test stderr ==="
+            if (Test-Path 'test-stderr.txt') { Get-Content 'test-stderr.txt' }
+            Write-Host "Integration test exit code: $($p.ExitCode)"
+            if ($p.ExitCode -ne 0) { throw "Windows integration tests failed with exit code $($p.ExitCode)" }
           } finally {
             Pop-Location
           }
+
+      - name: Upload integration-test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHR-WWV-Windows-integration-diagnostics
+          path: |
+            build/bin/test-stdout.txt
+            build/bin/test-stderr.txt
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Create unverified Windows DLL test package
         shell: pwsh

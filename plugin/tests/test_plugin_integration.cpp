@@ -484,7 +484,12 @@ static void testPluginLibrary(const char *path)
 
 int main(int argc, char **argv)
 {
+    // CI diagnostic: Windows may terminate an executable before buffered stdout is flushed.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+    std::fprintf(stderr, "[ahrwwv] integration-test process started\n");
     QCoreApplication app(argc, argv);
+    std::fprintf(stderr, "[ahrwwv] QCoreApplication initialized\n");
     const char *plugin = nullptr;
     bool longRun = false;
     for (int i = 1; i < argc; i++) {
