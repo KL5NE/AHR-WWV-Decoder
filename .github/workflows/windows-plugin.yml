@@ -176,6 +176,9 @@ jobs:
             python -m pip install --quiet pefile
             python '../../ahr/tools/check_windows_pe_deps.py' 'ahrwwv_plugin_tests.exe' 'plugins/ahrwwvtimedecoder.dll' --ffmpeg-reference '../../sdrangel/external/windows/ffmpeg/bin'
             Write-Host "Static PE diagnostics exit code: $LASTEXITCODE (informational)"
+            # Static PE export checks can report false positives for Qt and Swagger.
+            # Their result must not override the actual Windows loader test.
+            $global:LASTEXITCODE = 0
             Write-Host "=== Running integration tests ==="
             $p = Start-Process -FilePath '.\ahrwwv_plugin_tests.exe' -ArgumentList 'plugins/ahrwwvtimedecoder.dll' -WorkingDirectory (Get-Location).Path -Wait -PassThru -NoNewWindow -RedirectStandardOutput 'test-stdout.txt' -RedirectStandardError 'test-stderr.txt'
             Write-Host "=== Integration test stdout ==="
@@ -187,6 +190,9 @@ jobs:
           } finally {
             Pop-Location
           }
+          # The real integration executable returned 0. Explicitly clear the
+          # prior informational Python scanner's exit code for the pwsh runner.
+          exit 0
 
       - name: Windows loader snaps on failure
         if: failure()
