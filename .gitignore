@@ -1,0 +1,22 @@
+# Build outputs and local state
+build/
+out/
+cmake-build-*/
+.vs/
+.idea/
+*.user
+*.suo
+*.obj
+*.pdb
+*.dll
+*.exe
+*.msi
+*.zip
+*.7z
+# Avoid committing capture recordings and large binary files
+*.iq
+*.wav
+*.mp4
+*.mp3
+*.raw
+*.sigmf-data
