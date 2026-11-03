@@ -1,0 +1,504 @@
+// AHR WWV/WWVH Time Decoder - unit and scenario tests (no framework needed).
+#include "ahrwwv/decoder.h"
+#include "ahrwwv/timecode.h"
+#include "wwvsim.h"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <functional>
+#include <random>
+#include <string>
+
+using namespace ahrwwv;
+
+static int g_fail = 0, g_checks = 0;
+#define CHECK(cond, ...) do { g_checks++; if (!(cond)) { g_fail++; std::printf("  FAIL %s:%d: %s  ", __FILE__, __LINE__, #cond); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
+
+static std::string frameString(const Frame& f)
+{
+    std::string s;
+    for (auto x : f) s += symbolChar(x);
+    return s;
+}
+
+// ------------------------------------------------------------------ time code
+static void testEncodeKnown()
+{
+    std::printf("[timecode] known frame 2026-11-02 (day 306) 15:17 UTC\n");
+    TimeCode tc;
+    tc.year = 2026; tc.dayOfYear = 306; tc.hour = 15; tc.minute = 17;
+    tc.dut1Tenths = 0;
+    Frame f = encodeFrame(tc);
+    // Built by hand from NIST SP 250-67 bit assignments (LSB first):
+    //  sec: 0         1         2         3         4         5
+    //       0123456789012345678901234567890123456789012345678901234567890
+    const char* expect =
+        "_000"     // 0 ref, 1 unused, 2 DST2, 3 LSW
+        "0110"     // 4-7  year units 6
+        "0M"       // 8 unused, 9 P1
+        "1110"     // 10-13 minute units 7
+        "0"        // 14 unused
+        "100"      // 15-17 minute tens 1
+        "0M"       // 18 unused, 19 P2
+        "1010"     // 20-23 hour units 5
+        "0"        // 24 unused
+        "10"       // 25-26 hour tens 1
+        "00M"      // 27-28 unused, 29 P3
+        "0110"     // 30-33 day units 6
+        "0"        // 34 unused
+        "0000M"    // 35-38 day tens 0, 39 P4
+        "11"       // 40-41 day hundreds 3
+        "0000000M" // 42-48 unused, 49 P5
+        "1"        // 50 UT1 sign (+)
+        "0100"     // 51-54 year tens 2
+        "0"        // 55 DST1
+        "000M";    // 56-58 DUT1 0, 59 P0
+    CHECK(std::strlen(expect) == 60, "expect length %zu", std::strlen(expect));
+    CHECK(frameString(f) == expect, "\n    got    %s\n    expect %s", frameString(f).c_str(), expect);
+    DecodeResult r = decodeFrame(f);
+    CHECK(r.valid && r.tc.year == 2026 && r.tc.dayOfYear == 306 && r.tc.hour == 15 && r.tc.minute == 17, "decode");
+}
+
+static void testRoundTrip()
+{
+    std::printf("[timecode] 20000 random encode/decode round trips\n");
+    std::mt19937 rng(7);
+    int bad = 0;
+    for (int i = 0; i < 20000; i++) {
+        TimeCode tc;
+        tc.year = 2000 + int(rng() % 100);
+        tc.dayOfYear = 1 + int(rng() % (isLeapYear(tc.year) ? 366 : 365));
+        tc.hour = int(rng() % 24); tc.minute = int(rng() % 60);
+        tc.dut1Tenths = int(rng() % 15) - 7;
+        tc.leapSecondWarning = rng() & 1; tc.dst1 = rng() & 1; tc.dst2 = rng() & 1;
+        Frame f = encodeFrame(tc);
+        DecodeResult r = decodeFrame(f);
+        SoftFrame sf;
+        for (int p = 0; p < 60; p++)
+            for (int h = 0; h < 4; h++) sf[p][h] = (h == int(f[p])) ? 0.0 : 1.0;
+        DecodeResult rs = decodeFrameSoft(sf);
+        auto same = [&](const TimeCode& a) {
+            return a.year == tc.year && a.dayOfYear == tc.dayOfYear && a.hour == tc.hour && a.minute == tc.minute
+                && a.dut1Tenths == tc.dut1Tenths && a.leapSecondWarning == tc.leapSecondWarning
+                && a.dst1 == tc.dst1 && a.dst2 == tc.dst2;
+        };
+        if (!r.valid || !same(r.tc) || !rs.valid || !same(rs.tc)) bad++;
+    }
+    CHECK(bad == 0, "%d round trips failed", bad);
+}
+
+static void testRejects()
+{
+    std::printf("[timecode] corrupted frames are rejected\n");
+    TimeCode tc; tc.year = 2026; tc.dayOfYear = 306; tc.hour = 15; tc.minute = 17;
+    Frame good = encodeFrame(tc);
+    struct Case { const char* name; std::function<void(Frame&)> mut; } cases[] = {
+        {"missing marker 29", [](Frame& f) { f[29] = Symbol::One; }},
+        {"pulse in second 0", [](Frame& f) { f[0] = Symbol::Zero; }},
+        {"unused bit 44 set", [](Frame& f) { f[44] = Symbol::One; }},
+        {"minute tens 6", [](Frame& f) { f[15] = Symbol::Zero; f[16] = Symbol::One; f[17] = Symbol::One; }},
+        {"minute units 12", [](Frame& f) { f[10] = Symbol::Zero; f[11] = Symbol::Zero; f[12] = Symbol::One; f[13] = Symbol::One; }},
+        {"hour 25", [](Frame& f) { f[20] = Symbol::One; f[21] = Symbol::Zero; f[22] = Symbol::One; f[23] = Symbol::Zero; f[25] = Symbol::Zero; f[26] = Symbol::One; }},
+        {"day 0", [](Frame& f) { for (int p : {30, 31, 32, 33, 35, 36, 37, 38, 40, 41}) f[p] = Symbol::Zero; }},
+        {"unreadable second", [](Frame& f) { f[22] = Symbol::Unknown; }},
+        {"extra marker", [](Frame& f) { f[12] = Symbol::Marker; }},
+    };
+    for (auto& c : cases) {
+        Frame f = good;
+        c.mut(f);
+        DecodeResult r = decodeFrame(f);
+        CHECK(!r.valid, "%s accepted", c.name);
+    }
+    // day 366 is only legal in leap years
+    TimeCode t2 = tc; t2.year = 2026; t2.dayOfYear = 366;
+    CHECK(!decodeFrame(encodeFrame(t2)).valid, "day 366 in 2026 accepted");
+    t2.year = 2028;
+    CHECK(decodeFrame(encodeFrame(t2)).valid, "day 366 in 2028 rejected");
+}
+
+static void testSoft()
+{
+    std::printf("[timecode] soft decoding with noise and erasures\n");
+    TimeCode tc; tc.year = 2027; tc.dayOfYear = 45; tc.hour = 3; tc.minute = 59; tc.dut1Tenths = -2;
+    Frame f = encodeFrame(tc);
+    const double ex[4][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {1, 1, 1}};
+    std::mt19937 rng(3);
+    std::normal_distribution<double> n(0, 1);
+    auto make = [&](double sigma, int erase) {
+        SoftFrame sf;
+        for (int p = 0; p < 60; p++) {
+            double lv[3];
+            for (int i = 0; i < 3; i++) lv[i] = ex[int(f[p])][i] + sigma * n(rng);
+            if (p < erase && p % 10 != 9 && p) for (double& v : lv) v = 0.5; // erased: no information
+            for (int h = 0; h < 4; h++) {
+                double c = 0;
+                for (int i = 0; i < 3; i++) c += (lv[i] - ex[h][i]) * (lv[i] - ex[h][i]);
+                sf[p][h] = c;
+            }
+        }
+        return sf;
+    };
+    int ok = 0, wrong = 0;
+    for (int i = 0; i < 200; i++) {
+        DecodeResult r = decodeFrameSoft(make(0.15, 0));
+        if (r.valid) { ok++; if (r.tc.minute != 59 || r.tc.dayOfYear != 45 || r.tc.hour != 3 || r.tc.dut1Tenths != -2) wrong++; }
+    }
+    CHECK(ok >= 130 && wrong == 0, "sigma 0.15: %d/200 valid, %d wrong", ok, wrong);
+    std::printf("  sigma 0.15: %d/200 decoded, %d wrong\n", ok, wrong);
+    ok = 0; wrong = 0;
+    for (int i = 0; i < 200; i++) {
+        DecodeResult r = decodeFrameSoft(make(0.35, 0));
+        if (r.valid) { ok++; if (r.tc.minute != 59 || r.tc.dayOfYear != 45 || r.tc.hour != 3 || r.tc.dut1Tenths != -2) wrong++; }
+    }
+    std::printf("  sigma 0.35: %d/200 decoded, %d wrong\n", ok, wrong);
+    CHECK(wrong * 10 <= ok, "sigma 0.35 wrong %d of %d", wrong, ok);
+    // erased year bits must be reported as too weak, not guessed
+    DecodeResult r = decodeFrameSoft(make(0.05, 8));
+    CHECK(!r.valid, "frame with erased year accepted (weakest %s %.2f)", r.weakestField.c_str(), r.minMargin);
+    // pure noise must not decode
+    int falseOk = 0;
+    for (int i = 0; i < 500; i++) {
+        SoftFrame sf;
+        for (int p = 0; p < 60; p++) {
+            double lv[3] = {0.5 + 0.5 * n(rng), 0.5 + 0.5 * n(rng), 0.5 + 0.5 * n(rng)};
+            for (int h = 0; h < 4; h++) {
+                double c = 0;
+                for (int k = 0; k < 3; k++) c += (lv[k] - ex[h][k]) * (lv[k] - ex[h][k]);
+                sf[p][h] = c;
+            }
+        }
+        if (decodeFrameSoft(sf).valid) falseOk++;
+    }
+    CHECK(falseOk == 0, "%d/500 noise frames decoded", falseOk);
+}
+
+static void testCalendar()
+{
+    std::printf("[timecode] calendar helpers\n");
+    CHECK(timeCodeToUnix(unixToTimeCode(1793577600)) == 1793577600, "round trip");
+    TimeCode t = unixToTimeCode(1793577600); // 2026-11-02 00:00:00 UTC
+    CHECK(t.year == 2026 && t.dayOfYear == 306 && t.hour == 0 && t.minute == 0, "2026-11-02 -> %d/%d", t.year, t.dayOfYear);
+    int m, d;
+    dayOfYearToDate(2028, 60, m, d); CHECK(m == 2 && d == 29, "2028 day 60 = %d/%d", m, d);
+    dayOfYearToDate(2026, 60, m, d); CHECK(m == 3 && d == 1, "2026 day 60 = %d/%d", m, d);
+    dayOfYearToDate(2028, 366, m, d); CHECK(m == 12 && d == 31, "2028 day 366");
+    CHECK(dateToDayOfYear(2026, 12, 31) == 365 && dateToDayOfYear(2000, 12, 31) == 366, "doy");
+    CHECK(formatUnix(1793577600.0 + 15 * 3600 + 17 * 60 + 30.25) == "2026-11-02 15:17:30.250", "%s",
+          formatUnix(1793577600.0 + 15 * 3600 + 17 * 60 + 30.25).c_str());
+    TimeCode a; a.dst1 = true; a.dst2 = false;
+    CHECK(dstState(a) == DstState::BeginsToday, "dst begins");
+    a.dst1 = false; a.dst2 = true;
+    CHECK(dstState(a) == DstState::EndsToday, "dst ends");
+}
+
+static void testSkywave()
+{
+    std::printf("[engine] skywave delay estimate, Palmer AK\n");
+    int hw, hh;
+    double dw = estimateSkywaveDelay(61.6, -149.1, kWwvLat, kWwvLon, &hw);
+    double dh = estimateSkywaveDelay(61.6, -149.1, kWwvhLat, kWwvhLon, &hh);
+    std::printf("  WWV  %.1f ms (%d hops)   WWVH %.1f ms (%d hops)\n", dw * 1e3, hw, dh * 1e3, hh);
+    CHECK(dw > 0.0125 && dw < 0.0145, "WWV %.4f", dw);
+    CHECK(dh > 0.0150 && dh < 0.0175, "WWVH %.4f", dh);
+}
+
+// ------------------------------------------------------------------ scenarios
+struct RunResult {
+    double tDecoded = -1, tVerified = -1;
+    int wrongSeconds = 0, labelledSeconds = 0, frameOk = 0, frameBad = 0;
+    double maxBoundaryErr = 0;   // vs. truth, after Verified (s)
+    int holdoverSeconds = 0;
+    DecoderStatus final;
+    double finalUtcErr = 1e9;
+};
+
+// truthDelay: delay of the station used as truth for boundary error.
+static RunResult runScenario(const SimConfig& sc, double seconds, bool audio = false,
+                             DecoderConfig dc = DecoderConfig(), bool pcStamps = false, double pcOffset = 0.0,
+                             std::function<void(double, const DecoderStatus&)> perSecond = nullptr)
+{
+    dc.sampleRate = sc.sampleRate;
+    WwvSim sim(sc);
+    WwvDecoder dec(dc);
+    RunResult rr;
+    const SimStation& ts = sc.st[0].enabled ? sc.st[0] : sc.st[1];
+    std::vector<std::complex<float>> buf;
+    std::vector<float> aud;
+    const size_t block = size_t(sc.sampleRate / 20);
+    size_t blocks = size_t(seconds * 20);
+    double nextReport = 1.0;
+    for (size_t k = 0; k < blocks; k++) {
+        uint64_t first = sim.samplesGenerated();
+        sim.generate(buf, block);
+        if (pcStamps) dec.setNextSampleTimestamp(sim.trueUtc(first) + pcOffset);
+        if (audio) {
+            // AM demodulated audio as SDRangel would give it: |iq|, DC removed, arbitrary gain
+            aud.resize(block);
+            for (size_t i = 0; i < block; i++) aud[i] = 0.3f * (std::abs(buf[i]) - 1.0f);
+            dec.processAudio(aud.data(), aud.size());
+        } else {
+            dec.processIQ(buf.data(), buf.size());
+        }
+        for (auto& e : dec.takeEvents()) {
+            if (e.type == DecoderEvent::Type::FrameDecoded) rr.frameOk++;
+            if (e.type == DecoderEvent::Type::FrameRejected) rr.frameBad++;
+            if (e.type == DecoderEvent::Type::Second && e.haveUtc) {
+                rr.labelledSeconds++;
+                // transmit-time truth of this boundary
+                double tTrue = sc.startUnix + e.second.boundaryTime / (1.0 + sc.ppm * 1e-6) - ts.delay;
+                if (std::fabs(e.utcAtBoundary - tTrue) > 0.5) rr.wrongSeconds++;
+                if (dec.status().state == DecoderState::Verified) {
+                    double u; dec.utcAt(e.second.boundaryTime, u);
+                    rr.maxBoundaryErr = std::max(rr.maxBoundaryErr, std::fabs(u - tTrue));
+                }
+            }
+        }
+        double t = dec.currentSampleTime();
+        const DecoderStatus& s = dec.status();
+        if (rr.tDecoded < 0 && (s.state == DecoderState::Decoded || s.state == DecoderState::Verified)) rr.tDecoded = t;
+        if (rr.tVerified < 0 && s.state == DecoderState::Verified) rr.tVerified = t;
+        if (t >= nextReport) {
+            if (s.state == DecoderState::Holdover) rr.holdoverSeconds++;
+            if (perSecond) perSecond(t, s);
+            nextReport += 1.0;
+        }
+    }
+    rr.final = dec.status();
+    double u;
+    if (dec.currentUtc(u)) {
+        double truth = sim.trueUtc(sim.samplesGenerated() - 1) - ts.delay;
+        rr.finalUtcErr = u - truth;
+    }
+    return rr;
+}
+
+static void report(const char* name, const RunResult& r)
+{
+    std::printf("  %-34s state=%-11s decoded@%5.0fs verified@%5.0fs frames ok/bad %d/%d wrong-sec %d/%d "
+                "max-err %.2f ms snr %.1f dB jitter %.2f ms station %s\n",
+                name, decoderStateName(r.final.state), r.tDecoded, r.tVerified, r.frameOk, r.frameBad,
+                r.wrongSeconds, r.labelledSeconds, r.maxBoundaryErr * 1e3, r.final.subcarrierSnrDb,
+                r.final.timingJitter * 1e3, stationName(r.final.station));
+}
+
+static SimConfig baseSim(double start, double fs = 12000)
+{
+    SimConfig sc;
+    sc.sampleRate = fs;
+    sc.startUnix = start;
+    sc.snrDb = 30;
+    sc.st[0].delay = 0.0134;
+    return sc;
+}
+
+static const double kNov2 = 1793577600.0; // 2026-11-02 00:00:00 UTC
+
+static void testClean()
+{
+    std::printf("[decoder] clean signal, IQ input, start mid-minute\n");
+    for (double off : {17.25, 44.6, 59.3}) {
+        SimConfig sc = baseSim(kNov2 + 15 * 3600 + 17 * 60 + off);
+        RunResult r = runScenario(sc, 200);
+        char nm[64]; std::snprintf(nm, sizeof nm, "start at :%04.1f", off);
+        report(nm, r);
+        CHECK(r.final.state == DecoderState::Verified, "not verified");
+        CHECK(r.tVerified > 0 && r.tVerified < 190, "verify took %.0f s", r.tVerified);
+        CHECK(r.wrongSeconds == 0, "%d wrong seconds", r.wrongSeconds);
+        CHECK(r.maxBoundaryErr < 0.001, "boundary error %.4f", r.maxBoundaryErr);
+        CHECK(r.final.station == StationId::WWV, "station %s", stationName(r.final.station));
+    }
+}
+
+static void testAudioAndRates()
+{
+    std::printf("[decoder] AM audio input and other sample rates / sample clock errors\n");
+    {
+        SimConfig sc = baseSim(kNov2 + 7 * 3600 + 3 * 60 + 12.0, 48000);
+        RunResult r = runScenario(sc, 200, true);
+        report("audio 48 kHz", r);
+        CHECK(r.final.state == DecoderState::Verified && r.wrongSeconds == 0, "audio path");
+    }
+    struct { double fs, ppm; } cases[] = {{8000, 40}, {44100, -25}, {24000, 0}};
+    for (auto c : cases) {
+        SimConfig sc = baseSim(kNov2 + 22 * 3600 + 41 * 60 + 33.3, c.fs);
+        sc.ppm = c.ppm;
+        RunResult r = runScenario(sc, 240);
+        char nm[64]; std::snprintf(nm, sizeof nm, "IQ %.0f Hz, %+.0f ppm", c.fs, c.ppm);
+        report(nm, r);
+        std::printf("    measured sample clock %+.1f ppm (valid %d)\n", r.final.sampleClockPpm, r.final.sampleClockPpmValid);
+        CHECK(r.final.state == DecoderState::Verified && r.wrongSeconds == 0, "rate case");
+        CHECK(r.maxBoundaryErr < 0.0015, "boundary err %.4f", r.maxBoundaryErr);
+        CHECK(r.final.sampleClockPpmValid && std::fabs(r.final.sampleClockPpm - c.ppm) < 5, "ppm %.1f", r.final.sampleClockPpm);
+    }
+}
+
+static void testNoiseSweep()
+{
+    std::printf("[decoder] carrier-to-noise sweep (3 kHz bandwidth), 6 minutes each\n");
+    for (double snr : {20.0, 10.0, 6.0, 3.0, 0.0, -3.0}) {
+        SimConfig sc = baseSim(kNov2 + 12 * 3600 + 30 * 60 + 20.0);
+        sc.snrDb = snr;
+        sc.seed = 11;
+        RunResult r = runScenario(sc, 360);
+        char nm[64]; std::snprintf(nm, sizeof nm, "C/N %+.0f dB", snr);
+        report(nm, r);
+        CHECK(r.wrongSeconds == 0, "wrong seconds at %.0f dB", snr);
+        if (snr >= 6) CHECK(r.final.state == DecoderState::Verified, "not verified at %.0f dB", snr);
+    }
+}
+
+static void testFadingAndWwvh()
+{
+    std::printf("[decoder] fading, WWV+WWVH on the same frequency\n");
+    {
+        SimConfig sc = baseSim(kNov2 + 3 * 3600 + 5 * 60 + 40.0);
+        sc.snrDb = 15; sc.st[0].fadeDepth = 0.9; sc.st[0].fadeRateHz = 0.3; sc.seed = 5;
+        RunResult r = runScenario(sc, 360);
+        report("Rayleigh-like fading, C/N 15", r);
+        CHECK(r.wrongSeconds == 0, "wrong");
+        CHECK(r.final.haveTime, "no time");
+    }
+    {
+        SimConfig sc = baseSim(kNov2 + 9 * 3600 + 59 * 60 + 2.0);
+        sc.snrDb = 20;
+        sc.st[0].delay = 0.0134; sc.st[0].fadeDepth = 0.6; sc.st[0].fadeRateHz = 0.15;
+        sc.st[1].enabled = true; sc.st[1].delay = 0.0162; sc.st[1].amplitude = 0.8;
+        sc.st[1].fadeDepth = 0.6; sc.st[1].fadeRateHz = 0.2; sc.seed = 9;
+        RunResult r = runScenario(sc, 300);
+        report("WWV + WWVH (2.8 ms apart)", r);
+        CHECK(r.final.state == DecoderState::Verified && r.wrongSeconds == 0, "dual");
+        CHECK(r.final.station == StationId::Both, "station %s (f1000 %.2f f1200 %.2f)", stationName(r.final.station),
+              r.final.tick1000, r.final.tick1200);
+    }
+    {
+        SimConfig sc = baseSim(kNov2 + 9 * 3600 + 20 * 60 + 2.0);
+        sc.st[0].enabled = false;
+        sc.st[1].enabled = true; sc.st[1].delay = 0.0162;
+        RunResult r = runScenario(sc, 200);
+        report("WWVH only", r);
+        CHECK(r.final.state == DecoderState::Verified && r.wrongSeconds == 0, "wwvh");
+        CHECK(r.final.station == StationId::WWVH, "station %s", stationName(r.final.station));
+    }
+}
+
+static void testDropoutHoldover()
+{
+    std::printf("[decoder] 3-minute signal loss after lock: holdover and recovery\n");
+    SimConfig sc = baseSim(kNov2 + 18 * 3600 + 0 * 60 + 10.0);
+    sc.dropouts.push_back({200.0, 380.0});
+    bool sawHoldover = false;
+    double worstHoldErr = 0, maxUnc = 0;
+    DecoderConfig dc;
+    RunResult r = runScenario(sc, 560, false, dc, false, 0, [&](double t, const DecoderStatus& s) {
+        if (s.state == DecoderState::Holdover) {
+            sawHoldover = true;
+            maxUnc = std::max(maxUnc, s.timeUncertainty);
+        }
+        (void)t;
+    });
+    report("dropout 200-380 s", r);
+    std::printf("    holdover seconds %d, max reported uncertainty %.1f ms\n", r.holdoverSeconds, maxUnc * 1e3);
+    CHECK(sawHoldover, "never entered holdover");
+    CHECK(r.final.state == DecoderState::Verified, "did not recover (%s)", decoderStateName(r.final.state));
+    CHECK(r.wrongSeconds == 0, "wrong seconds %d", r.wrongSeconds);
+    CHECK(std::fabs(r.finalUtcErr) < 0.002, "final err %.4f", r.finalUtcErr);
+    (void)worstHoldErr;
+}
+
+static void testNoFalseLock()
+{
+    std::printf("[decoder] false-lock checks (must never produce a time)\n");
+    {
+        SimConfig sc = baseSim(kNov2);
+        sc.st[0].enabled = false; // noise only
+        sc.snrDb = 0;
+        RunResult r = runScenario(sc, 900);
+        report("noise only, 15 min", r);
+        CHECK(!r.final.haveTime && r.frameOk == 0 && r.tDecoded < 0, "noise produced a time");
+    }
+    {
+        SimConfig sc = baseSim(kNov2 + 3600);
+        sc.st[0].subcarrierMod = 0.0; // carrier, ticks, tones, voice but no time code
+        RunResult r = runScenario(sc, 600);
+        report("AM station without time code", r);
+        CHECK(!r.final.haveTime && r.frameOk == 0, "no-timecode signal produced a time");
+    }
+    {
+        SimConfig sc = baseSim(kNov2 + 7200);
+        sc.st[0].enabled = false;
+        sc.snrDb = 25;
+        RunResult r = runScenario(sc, 600, true);
+        report("audio noise only, 10 min", r);
+        CHECK(!r.final.haveTime && r.frameOk == 0, "audio noise produced a time");
+    }
+}
+
+static void testFlagsAndRollover()
+{
+    std::printf("[decoder] flags, year rollover, leap day\n");
+    {
+        SimConfig sc = baseSim(kNov2 + 6 * 3600 + 30.0);
+        sc.dut1Tenths = -3; sc.lsw = true; sc.dst1 = true; sc.dst2 = false;
+        RunResult r = runScenario(sc, 200);
+        report("DUT1 -0.3, LSW, DST begins", r);
+        const TimeCode& t = r.final.lastTimeCode;
+        CHECK(r.final.haveTime && t.dut1Tenths == -3 && t.leapSecondWarning && t.dst1 && !t.dst2, "flags dut1 %d lsw %d dst %d%d",
+              t.dut1Tenths, t.leapSecondWarning, t.dst1, t.dst2);
+    }
+    {
+        double start = double(daysFromCivil(2026, 12, 31)) * 86400 + 23 * 3600 + 57 * 60 + 20;
+        SimConfig sc = baseSim(start);
+        RunResult r = runScenario(sc, 260);
+        report("across 2027 new year", r);
+        const TimeCode& t = r.final.lastTimeCode;
+        CHECK(r.final.state == DecoderState::Verified && t.year == 2027 && t.dayOfYear == 1 && r.wrongSeconds == 0,
+              "rollover %d/%d %02d:%02d", t.year, t.dayOfYear, t.hour, t.minute);
+    }
+    {
+        double start = double(daysFromCivil(2028, 12, 31)) * 86400 + 12 * 3600 + 40;
+        SimConfig sc = baseSim(start);
+        RunResult r = runScenario(sc, 200);
+        report("2028 day 366", r);
+        CHECK(r.final.haveTime && r.final.lastTimeCode.dayOfYear == 366 && r.wrongSeconds == 0, "day 366");
+    }
+}
+
+static void testClockOffset()
+{
+    std::printf("[decoder] PC clock offset measurement\n");
+    SimConfig sc = baseSim(kNov2 + 20 * 3600 + 15.5);
+    DecoderConfig dc;
+    dc.propagationDelay = 0.0134; // matches the simulated path
+    RunResult r = runScenario(sc, 220, false, dc, true, 0.250);
+    report("PC clock 250 ms fast", r);
+    std::printf("    measured offset %+.2f ms +/- %.1f ms (1 sigma)\n", r.final.clockOffset * 1e3, r.final.clockOffsetUncertainty * 1e3);
+    CHECK(r.final.haveClockOffset && std::fabs(r.final.clockOffset - 0.250) < 0.002, "offset %.4f", r.final.clockOffset);
+}
+
+int main(int argc, char** argv)
+{
+    bool quick = argc > 1 && std::string(argv[1]) == "--quick";
+    testEncodeKnown();
+    testRoundTrip();
+    testRejects();
+    testSoft();
+    testCalendar();
+    testSkywave();
+    {
+        WwvDecoder d;
+        std::printf("[engine] measured detector delay at 48 kHz: %.2f ms\n", d.detectorDelay() * 1e3);
+    }
+    testClean();
+    if (!quick) {
+        testAudioAndRates();
+        testNoiseSweep();
+        testFadingAndWwvh();
+        testDropoutHoldover();
+        testNoFalseLock();
+        testFlagsAndRollover();
+        testClockOffset();
+    }
+    std::printf("\n%d checks, %d failed\n", g_checks, g_fail);
+    return g_fail ? 1 : 0;
+}
