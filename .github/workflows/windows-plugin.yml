@@ -1,0 +1,165 @@
+name: SDRangel 8.0.0 plugin — Windows MSVC
+
+on:
+  push:
+    branches:
+      - milestone-3-*
+      - main
+    paths:
+      - 'plugin/**'
+      - 'core/**'
+      - 'sim/**'
+      - 'sdrangel-integration/**'
+      - '.github/workflows/windows-plugin.yml'
+  pull_request:
+    paths:
+      - 'plugin/**'
+      - 'core/**'
+      - 'sim/**'
+      - 'sdrangel-integration/**'
+      - '.github/workflows/windows-plugin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin-windows:
+    name: MSVC 2022 / Qt 6.9.3 / SDRangel v8.0.0
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Checkout AHR plugin
+        uses: actions/checkout@v4
+        with:
+          path: ahr
+
+      - name: Checkout pinned SDRangel v8.0.0
+        uses: actions/checkout@v4
+        with:
+          repository: f4exb/sdrangel
+          ref: v8.0.0
+          path: sdrangel
+          submodules: recursive
+
+      - name: Prepare Windows build environment
+        shell: pwsh
+        run: |
+          choco install ninja patch --yes --no-progress
+          cmake --version
+          ninja --version
+
+      - name: Activate MSVC 2022 x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Python for Qt installer
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Qt 6.9.3 matching SDRangel release
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          dir: 'C:/'
+          arch: win64_msvc2022_64
+          setup-python: 'false'
+          modules: 'qtcharts qtscxml qt5compat qtlocation qtmultimedia qtpositioning qtserialport qtspeech qtwebsockets qtwebengine qtshadertools qtwebchannel'
+
+      - name: Install Boost 1.73 headers matching release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'C:/Libraries' | Out-Null
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/boost" | Out-Null
+          $archive = "$env:RUNNER_TEMP/boost/boost.tar.bz2"
+          curl.exe --fail --location --retry 3 --output "$archive" "https://archives.boost.io/release/1.73.0/source/boost_1_73_0.tar.bz2"
+          if ($LASTEXITCODE -ne 0) { throw "Boost download failed" }
+          7z x "$archive" "-o$env:RUNNER_TEMP/boost" -y -bd
+          if ($LASTEXITCODE -ne 0) { throw "Boost bz2 extraction failed" }
+          7z x "$env:RUNNER_TEMP/boost/boost.tar" "-oC:/Libraries" -y -bd
+          if ($LASTEXITCODE -ne 0) { throw "Boost tar extraction failed" }
+          if (!(Test-Path 'C:/Libraries/boost_1_73_0/boost/version.hpp')) { throw "Boost headers missing" }
+
+      - name: Apply guarded SDRangel integration
+        shell: pwsh
+        run: |
+          cmake -DSDRANGEL_SOURCE_DIR="$env:GITHUB_WORKSPACE/sdrangel" -P ahr/sdrangel-integration/apply_integration.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure native SDRangel plugin build
+        shell: pwsh
+        run: |
+          $pluginDir = (Resolve-Path 'ahr/plugin').Path.Replace('\','/')
+          cmake -S sdrangel -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DENABLE_QT6=ON `
+            -DARCH_OPT=SSE4_2 `
+            -DDEBUG_OUTPUT=ON `
+            -DENABLE_MIRISDR=OFF `
+            -DBUILD_SERVER=OFF `
+            "-DCMAKE_PREFIX_PATH=C:/Qt/6.9.3/msvc2022_64;C:/Libraries/boost_1_73_0" `
+            "-DAHRWWV_PLUGIN_DIR=$pluginDir" `
+            -DAHRWWV_BUILD_PLUGIN_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build plugin and integration tests
+        shell: pwsh
+        run: |
+          cmake --build build --target ahrwwvtimedecoder ahrwwv_plugin_tests --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run SDRangel plugin integration tests
+        shell: pwsh
+        run: |
+          $env:PATH = "C:/Qt/6.9.3/msvc2022_64/bin;$env:GITHUB_WORKSPACE/build/bin;$env:PATH"
+          Push-Location build/bin
+          try {
+            .\ahrwwv_plugin_tests.exe "plugins/ahrwwvtimedecoder.dll"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Create unverified Windows DLL test package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dll-package | Out-Null
+          $dll = 'build/bin/plugins/ahrwwvtimedecoder.dll'
+          if (!(Test-Path $dll)) { throw "Expected DLL not found at $dll" }
+          Copy-Item $dll 'dll-package/ahrwwvtimedecoder.dll'
+          Copy-Item 'ahr/docs/M3-PLUGIN.md' 'dll-package/M3-PLUGIN.md'
+          @'
+          AHR WWV/WWVH SDRangel v8.0.0 plugin — EXPERIMENTAL
+
+          Automated CI artifact only. Build/test success does not prove
+          compatibility with your installed SDRangel application.
+          Do not distribute as a stable installer until verified on HAMBEAST.
+
+          Before testing: close SDRangel; back up the plugins directory.
+          After approval: copy DLL to the correct SDRangel plugins folder.
+          On failure: remove ONLY this DLL and inspect SDRangel plugin logs.
+          This plugin does NOT change the Windows clock.
+          '@ | Set-Content 'dll-package/READ-ME-FIRST.txt'
+          $hash = (Get-FileHash 'dll-package/ahrwwvtimedecoder.dll' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ahrwwvtimedecoder.dll" | Set-Content 'dll-package/SHA256SUMS.txt'
+          Compress-Archive -Path 'dll-package/*' -DestinationPath 'AHR-WWV-v8.0.0-win64-DLL-test.zip' -Force
+
+      - name: Upload test DLL package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHR-WWV-v8.0.0-win64-DLL-test
+          path: AHR-WWV-v8.0.0-win64-DLL-test.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Show build disk use
+        if: always()
+        shell: pwsh
+        run: Get-PSDrive
