@@ -128,6 +128,15 @@ jobs:
             dumpbin /dependents '.\plugins\ahrwwvtimedecoder.dll'
             Write-Host "=== Test executable dependencies ==="
             dumpbin /dependents '.\ahrwwv_plugin_tests.exe'
+            Write-Host "=== SDRangel core DLL dependencies ==="
+            dumpbin /dependents '.\sdrbase.dll'
+            Write-Host "=== SDRangel GUI DLL dependencies ==="
+            dumpbin /dependents '.\sdrgui.dll'
+            Write-Host "=== Deployed DLL files in build/bin ==="
+            Get-ChildItem -Path . -Filter '*.dll' | Select-Object -ExpandProperty Name
+            Write-Host "=== Check missing imported DLLs recursively ==="
+            python -m pip install --quiet pefile
+            python '../../ahr/tools/check_windows_pe_deps.py' 'ahrwwv_plugin_tests.exe' 'plugins/ahrwwvtimedecoder.dll'
             Write-Host "=== Running integration tests ==="
             $p = Start-Process -FilePath '.\ahrwwv_plugin_tests.exe' -ArgumentList 'plugins/ahrwwvtimedecoder.dll' -WorkingDirectory (Get-Location).Path -Wait -PassThru -NoNewWindow -RedirectStandardOutput 'test-stdout.txt' -RedirectStandardError 'test-stderr.txt'
             Write-Host "=== Integration test stdout ==="
