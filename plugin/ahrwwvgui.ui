@@ -1,0 +1,974 @@
+<?xml version="1.0" ?>
+<ui version="4.0">
+ 
+ 
+ <class>AHRWWVGUI</class>
+ 
+ 
+ <widget class="RollupContents" name="AHRWWVGUI">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>830</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>352</width>
+    <height>0</height>
+   </size>
+  </property>
+  <property name="font">
+   <font>
+    <family>Liberation Sans</family>
+    <pointsize>9</pointsize>
+   </font>
+  </property>
+  <property name="focusPolicy">
+   <enum>Qt::StrongFocus</enum>
+  </property>
+  <property name="windowTitle">
+   <string>AHR WWV/WWVH Time Decoder</string>
+  </property>
+  <widget class="QWidget" name="settingsContainer" native="true">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>400</width>
+     <height>120</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>350</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>Settings</string>
+   </property>
+   <layout class="QVBoxLayout" name="settingsContainerLayout">
+    <property name="spacing">
+     <number>3</number>
+    </property>
+    <property name="leftMargin">
+     <number>2</number>
+    </property>
+    <property name="topMargin">
+     <number>2</number>
+    </property>
+    <property name="rightMargin">
+     <number>2</number>
+    </property>
+    <property name="bottomMargin">
+     <number>2</number>
+    </property>
+    <item>
+     <layout class="QHBoxLayout" name="freqLayout">
+      <item>
+       <widget class="QLabel" name="deltaLabel">
+        <property name="text">
+         <string>Δf</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="ValueDialZ" name="deltaFrequency" native="true">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>32</width>
+          <height>16</height>
+         </size>
+        </property>
+        <property name="font">
+         <font>
+          <family>Liberation Mono</family>
+          <pointsize>12</pointsize>
+         </font>
+        </property>
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+        <property name="focusPolicy">
+         <enum>Qt::StrongFocus</enum>
+        </property>
+        <property name="toolTip">
+         <string>Channel offset from the receiver centre frequency (Hz). Put the channel on the WWV/WWVH carrier.</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="deltaUnits">
+        <property name="text">
+         <string>Hz </string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="Line" name="line1">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="tunedFrequency">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Absolute frequency the decoder is listening to</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="hsp1">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>10</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="channelPowerLayout">
+        <item>
+         <widget class="QLabel" name="channelPower">
+          <property name="text">
+           <string>0.0</string>
+          </property>
+          <property name="toolTip">
+           <string>Channel power</string>
+          </property>
+          <property name="layoutDirection">
+           <enum>Qt::RightToLeft</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="channelPowerUnits">
+          <property name="text">
+           <string> dB</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="powerLayout">
+      <item>
+       <widget class="QLabel" name="channelPowerMeterUnits">
+        <property name="text">
+         <string>dB</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="LevelMeterSignalDB" name="channelPowerMeter" native="true">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="MinimumExpanding">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>24</height>
+         </size>
+        </property>
+        <property name="font">
+         <font>
+          <family>Liberation Mono</family>
+          <pointsize>8</pointsize>
+         </font>
+        </property>
+        <property name="toolTip">
+         <string>Channel level (dB). Top trace: average, bottom trace: peak, tip: peak hold</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="Line" name="hl1">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="controlLayout">
+      <item>
+       <widget class="QCheckBox" name="decoderEnabled">
+        <property name="text">
+         <string>Decode</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Run the WWV/WWVH time-code decoder</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="Line" name="line2">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="stationLabel">
+        <property name="text">
+         <string>Station</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="station">
+        <property name="toolTip">
+         <string>Station label. Auto uses the seconds-tick tone (1000 Hz WWV, 1200 Hz WWVH). Also selects the propagation path used for the PC clock comparison.</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Auto</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>WWV</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>WWVH</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
+       <widget class="Line" name="line3">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="resetDecoder">
+        <property name="text">
+         <string>Reset</string>
+        </property>
+        <property name="toolTip">
+         <string>Clear the decoder and start searching again</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="showDiagnostics">
+        <property name="text">
+         <string>Diagnostics</string>
+        </property>
+        <property name="toolTip">
+         <string>Show the 100 Hz envelope / pulse diagnostic panel</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="hsp2">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>10</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="latencyLayout">
+      <item>
+       <widget class="QLabel" name="latencyLabel">
+        <property name="text">
+         <string>Latency corr.</string>
+        </property>
+        <property name="toolTip">
+         <string>Known delay between the antenna and this plugin (SDR + SDRangel buffering). Subtracted from the PC clock comparison only.</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="latencyCorrection">
+        <property name="suffix">
+         <string> ms</string>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>2000</number>
+        </property>
+        <property name="toolTip">
+         <string>Known receive-chain latency in ms (0 if unknown). Only affects the PC clock comparison.</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="Line" name="line4">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="pathLabel">
+        <property name="text">
+         <string>Path delay</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="pathDelay">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Estimated skywave delay from the station to your position (SDRangel My Position). Removed from the PC clock comparison.</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="hsp3">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>10</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWidget" name="clockContainer" native="true">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>130</y>
+     <width>400</width>
+     <height>130</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>350</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>UTC Clock</string>
+   </property>
+   <layout class="QVBoxLayout" name="clockContainerLayout">
+    <property name="spacing">
+     <number>3</number>
+    </property>
+    <property name="leftMargin">
+     <number>2</number>
+    </property>
+    <property name="topMargin">
+     <number>2</number>
+    </property>
+    <property name="rightMargin">
+     <number>2</number>
+    </property>
+    <property name="bottomMargin">
+     <number>2</number>
+    </property>
+    <item>
+     <layout class="QHBoxLayout" name="utcLayout">
+      <item>
+       <widget class="QLabel" name="utcTime">
+        <property name="text">
+         <string>--:--:--</string>
+        </property>
+        <property name="toolTip">
+         <string>Decoded UTC (as transmitted; your receive delay is not added)</string>
+        </property>
+        <property name="font">
+         <font>
+          <family>Liberation Mono</family>
+          <pointsize>26</pointsize>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="utcSuffix">
+        <property name="text">
+         <string>UTC</string>
+        </property>
+        <property name="font">
+         <font>
+          <family>Liberation Sans</family>
+          <pointsize>12</pointsize>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="hsp4">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>10</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="syncBadge">
+        <property name="text">
+         <string>SEARCHING</string>
+        </property>
+        <property name="toolTip">
+         <string>Decoder state</string>
+        </property>
+        <property name="font">
+         <font>
+          <family>Liberation Sans</family>
+          <pointsize>10</pointsize>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="alignment">
+         <enum>Qt::AlignCenter</enum>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>150</width>
+          <height>26</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QLabel" name="utcDate">
+      <property name="text">
+       <string>----------</string>
+      </property>
+      <property name="toolTip">
+       <string>Decoded date and day of year</string>
+      </property>
+      <property name="font">
+       <font>
+        <family>Liberation Mono</family>
+        <pointsize>11</pointsize>
+       </font>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="lastFrame">
+      <property name="text">
+       <string>Last frame: none</string>
+      </property>
+      <property name="toolTip">
+       <string>Most recent accepted minute frame</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="pcOffset">
+      <property name="text">
+       <string>PC clock: no comparison yet</string>
+      </property>
+      <property name="toolTip">
+       <string>Read-only estimate of the Windows clock against decoded UTC. Approximate: propagation, SDR buffering and software latency add uncertainty. The system clock is never changed.</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWidget" name="codeContainer" native="true">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>270</y>
+     <width>400</width>
+     <height>220</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>350</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>Time Code</string>
+   </property>
+   <layout class="QVBoxLayout" name="codeContainerLayout">
+    <property name="spacing">
+     <number>3</number>
+    </property>
+    <property name="leftMargin">
+     <number>2</number>
+    </property>
+    <property name="topMargin">
+     <number>2</number>
+    </property>
+    <property name="rightMargin">
+     <number>2</number>
+    </property>
+    <property name="bottomMargin">
+     <number>2</number>
+    </property>
+    <item>
+     <widget class="AHRWWVTimeCodeStrip" name="timeCodeStrip" native="true">
+      <property name="minimumSize">
+       <size>
+        <width>260</width>
+        <height>100</height>
+       </size>
+      </property>
+      <property name="toolTip">
+       <string>Received symbols this minute. Hover a cell for its meaning.</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <layout class="QGridLayout" name="fieldsLayout">
+      <property name="horizontalSpacing">
+       <number>8</number>
+      </property>
+      <property name="verticalSpacing">
+       <number>2</number>
+      </property>
+      <item row="0" column="0">
+       <widget class="QLabel" name="dut1Label">
+        <property name="text">
+         <string>DUT1</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="dut1Value">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>UT1 - UTC correction carried in the time code</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="dstLabel">
+        <property name="text">
+         <string>DST</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="3">
+       <widget class="QLabel" name="dstValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>US daylight saving time bits (DST1 bit 55, DST2 bit 2)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="lswLabel">
+        <property name="text">
+         <string>Leap sec</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLabel" name="lswValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Leap second warning bit (3)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QLabel" name="confLabel">
+        <property name="text">
+         <string>Confidence</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="3">
+       <widget class="QLabel" name="confidenceValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Weakest field margin of the last frame (1.0 = clean)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="framesLabel">
+        <property name="text">
+         <string>Frames</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1" colspan="3">
+       <widget class="QLabel" name="framesValue">
+        <property name="text">
+         <string>0 valid / 0 rejected</string>
+        </property>
+        <property name="toolTip">
+         <string>Frames accepted / rejected since the last reset</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="problemLabel">
+        <property name="text">
+         <string>Last issue</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1" colspan="3">
+       <widget class="QLabel" name="problemValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Why the last frame was not accepted, if it was not</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWidget" name="signalContainer" native="true">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>500</y>
+     <width>400</width>
+     <height>150</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>350</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>Signal</string>
+   </property>
+   <layout class="QVBoxLayout" name="signalContainerLayout">
+    <property name="spacing">
+     <number>3</number>
+    </property>
+    <property name="leftMargin">
+     <number>2</number>
+    </property>
+    <property name="topMargin">
+     <number>2</number>
+    </property>
+    <property name="rightMargin">
+     <number>2</number>
+    </property>
+    <property name="bottomMargin">
+     <number>2</number>
+    </property>
+    <item>
+     <layout class="QGridLayout" name="signalLayout">
+      <property name="horizontalSpacing">
+       <number>8</number>
+      </property>
+      <property name="verticalSpacing">
+       <number>2</number>
+      </property>
+      <item row="0" column="0">
+       <widget class="QLabel" name="snrLabel">
+        <property name="text">
+         <string>100 Hz SNR</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QProgressBar" name="snrBar">
+        <property name="maximum">
+         <number>100</number>
+        </property>
+        <property name="value">
+         <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>false</bool>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>12</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Time-code subcarrier signal-to-noise (0-30 dB)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="snrValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="lockLabel">
+        <property name="text">
+         <string>Second lock</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QProgressBar" name="lockBar">
+        <property name="maximum">
+         <number>100</number>
+        </property>
+        <property name="value">
+         <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>false</bool>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>12</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Strength of the once-per-second pulse pattern</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QLabel" name="lockValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="stateLabel">
+        <property name="text">
+         <string>Sync</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1" colspan="2">
+       <widget class="QLabel" name="stateValue">
+        <property name="text">
+         <string>Searching</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="stationHeardLabel">
+        <property name="text">
+         <string>Station</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1" colspan="2">
+       <widget class="QLabel" name="stationValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Seconds-tick tone: 1000 Hz = WWV, 1200 Hz = WWVH</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="signalLabel">
+        <property name="text">
+         <string>Signal</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1" colspan="2">
+       <widget class="QLabel" name="signalValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Whether samples are arriving and the time code is being received</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="timingLabel">
+        <property name="text">
+         <string>Timing</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1" colspan="2">
+       <widget class="QLabel" name="timingValue">
+        <property name="text">
+         <string>-</string>
+        </property>
+        <property name="toolTip">
+         <string>Edge jitter, receiver sample-clock error and time uncertainty (1 sigma)</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWidget" name="diagContainer" native="true">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>660</y>
+     <width>400</width>
+     <height>160</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>350</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>Diagnostics</string>
+   </property>
+   <layout class="QVBoxLayout" name="diagContainerLayout">
+    <property name="spacing">
+     <number>3</number>
+    </property>
+    <property name="leftMargin">
+     <number>2</number>
+    </property>
+    <property name="topMargin">
+     <number>2</number>
+    </property>
+    <property name="rightMargin">
+     <number>2</number>
+    </property>
+    <property name="bottomMargin">
+     <number>2</number>
+    </property>
+    <item>
+     <widget class="AHRWWVEnvelopePlot" name="envelopePlot" native="true">
+      <property name="minimumSize">
+       <size>
+        <width>200</width>
+        <height>120</height>
+       </size>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ 
+ 
+ <customwidgets>
+  
+  
+  <customwidget>
+   <class>RollupContents</class>
+   <extends>QWidget</extends>
+   <header>gui/rollupcontents.h</header>
+   <container>1</container>
+  </customwidget>
+  
+  
+  <customwidget>
+   <class>LevelMeterSignalDB</class>
+   <extends>QWidget</extends>
+   <header>gui/levelmeter.h</header>
+   <container>1</container>
+  </customwidget>
+  
+  
+  <customwidget>
+   <class>ValueDialZ</class>
+   <extends>QWidget</extends>
+   <header>gui/valuedialz.h</header>
+   <container>1</container>
+  </customwidget>
+  
+  
+  <customwidget>
+   <class>AHRWWVTimeCodeStrip</class>
+   <extends>QWidget</extends>
+   <header>ahrwwvwidgets.h</header>
+   <container>1</container>
+  </customwidget>
+  
+  
+  <customwidget>
+   <class>AHRWWVEnvelopePlot</class>
+   <extends>QWidget</extends>
+   <header>ahrwwvwidgets.h</header>
+   <container>1</container>
+  </customwidget>
+  
+ 
+ </customwidgets>
+ 
+ 
+ <resources/>
+ 
+ 
+ <connections/>
+ 
+
+</ui>
