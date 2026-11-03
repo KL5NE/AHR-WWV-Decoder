@@ -1,0 +1,8 @@
+/mnt/user-data/uploads/captures/wwv5_minute_mark.wav: 48000 Hz, audio (mono), 30.0 s
+
+symbols: 
+final state Searching | 100 Hz SNR 0.0 dB | second lock quality 0.00 | edge jitter 0.00 ms | station Unknown (tick 1000 0.00, 1200 0.00)
+/mnt/user-data/uploads/captures/wwv10_minute_mark.wav: 48000 Hz, audio (mono), 30.0 s
+
+symbols: 
+final state Searching | 100 Hz SNR 0.0 dB | second lock quality 0.00 | edge jitter 0.00 ms | station Unknown (tick 1000 0.00, 1200 0.00)
