@@ -1,0 +1,23 @@
+name: Project scaffold checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-scaffold:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify starter documentation
+        shell: pwsh
+        run: |
+          @('README.md', 'docs/INSTALLER-PLAN.md', 'docs/CLAUDE-HANDOFF.md') | ForEach-Object {
+            if (-not (Test-Path -LiteralPath $_)) { throw "Missing project file: $_" }
+          }
+          Write-Host 'Scaffold ready. Decoder tests and installer build will be added only after the toolchain is validated.'
