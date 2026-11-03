@@ -158,7 +158,7 @@ jobs:
             dumpbin /dependents '.\sdrgui.dll'
             Write-Host "=== Deployed DLL files in build/bin ==="
             Get-ChildItem -Path . -Filter '*.dll' | Select-Object -ExpandProperty Name
-            Write-Host "=== Check missing imported DLLs recursively ==="
+            Write-Host "=== Diagnose missing DLLs and imported procedures recursively ==="
             python -m pip install --quiet pefile
             python '../../ahr/tools/check_windows_pe_deps.py' 'ahrwwv_plugin_tests.exe' 'plugins/ahrwwvtimedecoder.dll'
             Write-Host "=== Running integration tests ==="
@@ -172,6 +172,23 @@ jobs:
           } finally {
             Pop-Location
           }
+
+      - name: Preserve Windows test binaries for loader diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHR-WWV-Windows-loader-triage-UNVERIFIED
+          path: |
+            build/bin/ahrwwv_plugin_tests.exe
+            build/bin/sdrbase.dll
+            build/bin/sdrgui.dll
+            build/bin/plugins/ahrwwvtimedecoder.dll
+            build/bin/libfftw3f-3.dll
+            build/bin/libsigmf.dll
+            build/bin/avfilter-10.dll
+            build/bin/postproc-58.dll
+          if-no-files-found: warn
+          retention-days: 5
 
       - name: Upload integration-test diagnostics on failure
         if: failure()
