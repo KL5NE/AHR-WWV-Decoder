@@ -123,7 +123,8 @@ jobs:
           $files = @(
             'fftw-3/libfftw3f-3.dll',
             'libsigmf/lib/libsigmf.dll',
-            'ffmpeg/bin/avfilter-10.dll'
+            'ffmpeg/bin/avfilter-10.dll',
+            'ffmpeg/bin/postproc-58.dll'
           )
           $sourceRoot = 'sdrangel/external/windows'
           $destRoot = 'build/bin'
