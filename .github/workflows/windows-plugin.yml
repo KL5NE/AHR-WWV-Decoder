@@ -114,6 +114,29 @@ jobs:
           cmake --build build --target ahrwwvtimedecoder ahrwwv_plugin_tests --parallel 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Stage SDRangel 8.0.0 pinned Windows runtime dependencies
+        shell: pwsh
+        run: |
+          # These DLLs are from SDRangel's own pinned external/windows submodule.
+          # Core and GUI libraries link successfully, but Windows cannot start
+          # the tests without their dependent runtime DLLs (0xC0000135).
+          $files = @(
+            'fftw-3/libfftw3f-3.dll',
+            'libsigmf/lib/libsigmf.dll',
+            'ffmpeg/bin/avfilter-10.dll'
+          )
+          $sourceRoot = 'sdrangel/external/windows'
+          $destRoot = 'build/bin'
+          foreach ($relative in $files) {
+            $source = Join-Path $sourceRoot $relative
+            if (!(Test-Path -LiteralPath $source)) {
+              throw "Pinned SDRangel runtime dependency not found: $source"
+            }
+            $dest = Join-Path $destRoot (Split-Path $source -Leaf)
+            Copy-Item -LiteralPath $source -Destination $dest -Force
+            Write-Host "Staged $(Split-Path $source -Leaf) from pinned SDRangel submodule"
+          }
+
       - name: Run SDRangel plugin integration tests
         shell: pwsh
         run: |
