@@ -1,0 +1,74 @@
+name: Core decoder CI (Linux + Windows)
+
+on:
+  push:
+    paths:
+      - 'CMakeLists.txt'
+      - 'core/**'
+      - 'sim/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.github/workflows/core-ci.yml'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'core/**'
+      - 'sim/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.github/workflows/core-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / C++17 core
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify core source present
+        shell: bash
+        run: |
+          test -f CMakeLists.txt || { echo "::error::Claude M1-M2 source has not yet been committed at the repository root."; exit 1; }
+          test -f core/src/decoder.cpp || { echo "::error::Core decoder source missing."; exit 1; }
+          cmake --version
+          ninja --version
+
+      - name: Configure portable decoder
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build portable decoder and tests
+        run: cmake --build build --parallel 2
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p test-output
+          set -o pipefail
+          ctest --test-dir build --output-on-failure --verbose 2>&1 | tee test-output/ahrwwv_tests.log
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-output | Out-Null
+          ctest --test-dir build --output-on-failure --verbose 2>&1 | Tee-Object -FilePath test-output/ahrwwv_tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ahrwwv-tests-${{ matrix.os }}
+          path: test-output/ahrwwv_tests.log
+          if-no-files-found: warn
+          retention-days: 14
