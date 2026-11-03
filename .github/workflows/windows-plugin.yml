@@ -114,34 +114,48 @@ jobs:
           cmake --build build --target ahrwwvtimedecoder ahrwwv_plugin_tests --parallel 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Stage SDRangel 8.0.0 pinned Windows runtime dependencies
+      - name: Stage SDRangel's own runtime DLLs (SDRangel copy_* targets)
         shell: pwsh
         run: |
-          # These DLLs are from SDRangel's own pinned external/windows submodule.
-          # Core and GUI libraries link successfully, but Windows cannot start
-          # the tests without their dependent runtime DLLs (0xC0000135).
-          $files = @(
-            'fftw-3/libfftw3f-3.dll',
-            'libsigmf/lib/libsigmf.dll',
-            'ffmpeg/bin/avfilter-10.dll',
-            'ffmpeg/bin/postproc-58.dll'
-          )
-          $sourceRoot = 'sdrangel/external/windows'
-          $destRoot = 'build/bin'
-          foreach ($relative in $files) {
-            $source = Join-Path $sourceRoot $relative
-            if (!(Test-Path -LiteralPath $source)) {
-              throw "Pinned SDRangel runtime dependency not found: $source"
+          # After sdrgui's windeployqt, stage SDRangel's complete pinned
+          # Windows runtime set. Do not combine FFmpeg DLLs from Qt and SDRangel.
+          $targets = @(ninja -C build -t targets all |
+            ForEach-Object { ($_ -split ':')[0].Trim() } |
+            Where-Object { $_ -match '^copy_[^/\\]+$' } |
+            Sort-Object -Unique)
+          if ($targets.Count -eq 0) { throw "No SDRangel copy_* staging targets found" }
+          Write-Host "Running $($targets.Count) SDRangel staging targets"
+          cmake --build build --target @targets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify every FFmpeg DLL matches SDRangel v8.0.0 pinned build
+        shell: pwsh
+        run: |
+          $ref = 'sdrangel/external/windows/ffmpeg/bin'
+          $bad = @()
+          $sourceDlls = @(Get-ChildItem -Path $ref -Filter '*.dll')
+          if ($sourceDlls.Count -eq 0) { throw "Pinned FFmpeg reference DLLs missing" }
+          foreach ($refDll in $sourceDlls) {
+            $built = Join-Path 'build/bin' $refDll.Name
+            if (!(Test-Path -LiteralPath $built)) {
+              $bad += "$($refDll.Name): missing from build/bin"
+              continue
             }
-            $dest = Join-Path $destRoot (Split-Path $source -Leaf)
-            Copy-Item -LiteralPath $source -Destination $dest -Force
-            Write-Host "Staged $(Split-Path $source -Leaf) from pinned SDRangel submodule"
+            $expected = (Get-FileHash -LiteralPath $refDll.FullName -Algorithm SHA256).Hash
+            $actual = (Get-FileHash -LiteralPath $built -Algorithm SHA256).Hash
+            $match = $expected -eq $actual
+            Write-Host "$($refDll.Name): $(if($match){'MATCH'}else{'MISMATCH'})"
+            if (!$match) { $bad += "$($refDll.Name): mixed FFmpeg runtime" }
+          }
+          if ($bad.Count -gt 0) {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw "FFmpeg mismatch: refusing to run integration tests"
           }
 
       - name: Run SDRangel plugin integration tests
         shell: pwsh
         run: |
-          $env:PATH = "C:/Qt/6.9.3/msvc2022_64/bin;$env:GITHUB_WORKSPACE/build/bin;$env:PATH"
+          $env:PATH = "$env:GITHUB_WORKSPACE/build/bin;$env:PATH;C:/Qt/6.9.3/msvc2022_64/bin"
           $env:QT_QPA_PLATFORM = "offscreen"
           Push-Location build/bin
           try {
@@ -160,7 +174,8 @@ jobs:
             Get-ChildItem -Path . -Filter '*.dll' | Select-Object -ExpandProperty Name
             Write-Host "=== Diagnose missing DLLs and imported procedures recursively ==="
             python -m pip install --quiet pefile
-            python '../../ahr/tools/check_windows_pe_deps.py' 'ahrwwv_plugin_tests.exe' 'plugins/ahrwwvtimedecoder.dll'
+            python '../../ahr/tools/check_windows_pe_deps.py' 'ahrwwv_plugin_tests.exe' 'plugins/ahrwwvtimedecoder.dll' --ffmpeg-reference '../../sdrangel/external/windows/ffmpeg/bin'
+            Write-Host "Static PE diagnostics exit code: $LASTEXITCODE (informational)"
             Write-Host "=== Running integration tests ==="
             $p = Start-Process -FilePath '.\ahrwwv_plugin_tests.exe' -ArgumentList 'plugins/ahrwwvtimedecoder.dll' -WorkingDirectory (Get-Location).Path -Wait -PassThru -NoNewWindow -RedirectStandardOutput 'test-stdout.txt' -RedirectStandardError 'test-stderr.txt'
             Write-Host "=== Integration test stdout ==="
@@ -172,6 +187,26 @@ jobs:
           } finally {
             Pop-Location
           }
+
+      - name: Windows loader snaps on failure
+        if: failure()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dbg = 'C:/Program Files (x86)/Windows Kits/10/Debuggers/x64'
+          if (!(Test-Path "$dbg/cdb.exe")) { Write-Host "Windows debugger unavailable"; exit 0 }
+          $env:PATH = "$env:GITHUB_WORKSPACE/build/bin;$env:PATH;C:/Qt/6.9.3/msvc2022_64/bin"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          Push-Location build/bin
+          try {
+            & "$dbg/gflags.exe" -i ahrwwv_plugin_tests.exe +sls | Out-Host
+            & "$dbg/cdb.exe" -g -G -o -logo loader-snaps.txt -c "q" .\ahrwwv_plugin_tests.exe plugins/ahrwwvtimedecoder.dll | Out-Null
+            & "$dbg/gflags.exe" -i ahrwwv_plugin_tests.exe -sls | Out-Host
+            if (Test-Path loader-snaps.txt) {
+              Select-String -Path loader-snaps.txt -Pattern 'could not be located|Procedure|LdrpSnapModule|LdrpNameToOrdinal|STATUS_' |
+                Select-Object -Last 40 | ForEach-Object { $_.Line }
+            }
+          } finally { Pop-Location }
 
       - name: Preserve Windows test binaries for loader diagnostics
         if: failure()
@@ -185,8 +220,9 @@ jobs:
             build/bin/plugins/ahrwwvtimedecoder.dll
             build/bin/libfftw3f-3.dll
             build/bin/libsigmf.dll
-            build/bin/avfilter-10.dll
-            build/bin/postproc-58.dll
+            build/bin/av*.dll
+            build/bin/sw*.dll
+            build/bin/postproc-*.dll
           if-no-files-found: warn
           retention-days: 5
 
@@ -198,6 +234,7 @@ jobs:
           path: |
             build/bin/test-stdout.txt
             build/bin/test-stderr.txt
+            build/bin/loader-snaps.txt
           if-no-files-found: warn
           retention-days: 14
 

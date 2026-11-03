@@ -20,6 +20,7 @@
 #endif
 
 #include <QCoreApplication>
+#include <QLibrary>
 #include <QPluginLoader>
 #include <QThread>
 #include <QElapsedTimer>
@@ -457,6 +458,17 @@ static void testLongRun(double minutes)
 static void testPluginLibrary(const char *path)
 {
     std::printf("[plugin] load the built plugin library with QPluginLoader (%s)\n", path);
+#ifdef _WIN32
+    // Isolate SDRangel's GUI/FFmpeg runtime loading from plugin code.
+    // If this fails, the Windows deployment is broken before our plugin runs.
+    {
+        QLibrary sdrgui("sdrgui.dll");
+        bool ok = sdrgui.load();
+        std::printf("    SDRangel sdrgui.dll alone: %s%s\n", ok ? "loads" : "FAILS: ",
+                    ok ? "" : qPrintable(sdrgui.errorString()));
+        CHECK(ok, "SDRangel sdrgui.dll failed to load: %s", qPrintable(sdrgui.errorString()));
+    }
+#endif
     for (int i = 0; i < 20; i++)
     {
         QPluginLoader loader(QString::fromLocal8Bit(path));
