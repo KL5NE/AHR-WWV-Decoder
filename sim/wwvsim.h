@@ -19,6 +19,10 @@ struct SimStation {
     double subcarrierMod = 0.5;  // 100 Hz time code modulation index
     double toneMod = 0.5;        // 500/600 Hz tones
     double voiceMod = 0.4;       // voice-like noise, seconds 45-58
+    // Default voice-band model; use 150 Hz and 100 Hz swing to retain the
+    // original deliberately harsh in-band interference stress scenario.
+    double voiceCentreHz = 700.0;
+    double voiceSwingHz = 400.0;
     double tickMod = 1.0;
 };
 

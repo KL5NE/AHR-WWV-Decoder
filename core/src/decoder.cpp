@@ -288,6 +288,7 @@ struct WwvDecoder::Impl {
     double href = 0;
     double offVar = 0; bool offInit = false;
     double noiseFloor = 0;
+    double noiseMag = 0;  // tracked off-pulse 100 Hz magnitude (noise bias)
     double carrierTyp = 0;
     int edgeCount = 0;
 
@@ -325,10 +326,11 @@ struct WwvDecoder::Impl {
 
     // ---------------------------------------------------------------
     bool phasorValid() const { return secLocked && pUpdates >= 300 && std::abs(P) > 0; }
+    // Non-coherent magnitude: HF multipath can rotate subcarrier phase
+    // within a single pulse. Long-term phase projection loses valid pulses.
     double proj(const EnvSample& e) const
     {
-        if (!phasorValid()) return e.mag;
-        return (e.z * std::conj(P)).real() / std::abs(P);
+        return e.mag;
     }
 
     bool utcAt(double t, double& utc) const
@@ -404,7 +406,7 @@ struct WwvDecoder::Impl {
             }
         }
         if (tap) {
-            double lvl = phasorValid() && href > 0 ? proj(e) / href : (href > 0 ? e.mag / href : e.mag);
+            double lvl = href > 0 ? e.mag / href : e.mag;
             tap(tapUser, t, float(lvl));
         }
         long w = long(std::floor(t));
@@ -522,37 +524,34 @@ struct WwvDecoder::Impl {
 
     void extractSecond(double b)
     {
+        // Phase-independent 100 Hz envelope, with tracked off-pulse bias.
+        // Real multi-hop skywave can swing phase during the pulse itself.
         double var = 0;
-        windowMean(b + kWinLow[0], b + kWinLow[1], &var);
-        double A = windowMean(b + kWinA[0], b + kWinA[1]);
-        double B = windowMean(b + kWinB[0], b + kWinB[1]);
-        double C = windowMean(b + kWinC[0], b + kWinC[1]);
+        double lowMag = windowMean(b + kWinLow[0], b + kWinLow[1], &var);
+        double varPre = 0;
+        double preMag = windowMean(b - 0.16, b - 0.01, &varPre);
+        double offMag = std::min(lowMag, preMag);
+        if (noiseMag <= 0) noiseMag = offMag;
+        else noiseMag += (offMag < noiseMag ? 0.3 : 0.02) * (offMag - noiseMag);
+        double A = windowMean(b + kWinA[0], b + kWinA[1]) - noiseMag;
+        double B = windowMean(b + kWinB[0], b + kWinB[1]) - noiseMag;
+        double C = windowMean(b + kWinC[0], b + kWinC[1]) - noiseMag;
         double r = std::max(href, 1e-15);
         double lv[3] = {A / r, B / r, C / r};
-        double varPre = 0;
-        windowMean(b - 0.16, b - 0.01, &varPre);
         // Noise floor: follows quiet seconds quickly, noisy (voice) seconds slowly.
         double sn = std::sqrt(std::max(var, varPre));
         if (noiseFloor <= 0) noiseFloor = sn;
         else noiseFloor += (sn < noiseFloor ? 0.3 : 0.01) * (sn - noiseFloor);
-        // Unreliable windows (deep fades, static crashes, voice) carry less
-        // weight so they cannot outvote clean seconds in the frame decision.
-        // Noise is measured in each window from the quadrature component, which
-        // holds no time-code signal; sl = noise of the window average in
-        // normalized level units.
+        // Weight pulse decisions by local envelope fluctuations rather than
+        // the quadrature component, which can contain rotated real skywave
+        // signal. Unreliable seconds must not outvote clear seconds.
         const double* wins[3] = {kWinA, kWinB, kWinC};
         double wgt[3];
         for (int i = 0; i < 3; i++) {
             double len = wins[i][1] - wins[i][0];
             double neff = std::max(1.0, len * 2.0 * 1.03 * cfg.lowpassHz);
-            double q2 = phasorValid() ? quadPower(b + wins[i][0], b + wins[i][1]) : sn * sn;
-            double sl2 = q2 / (r * r) / neff;
+            double sl2 = sn * sn / (r * r) / neff;
             wgt[i] = std::min(1.0, (0.12 * 0.12) / std::max(sl2, 1e-12));
-            // Deep carrier fades also suppress the detected 100 Hz (AM detector
-            // threshold effect), which the noise measure above cannot see.
-            double cmin = minCarrier(b + wins[i][0] - 0.02, b + wins[i][1] + 0.02);
-            double cr = cmin / std::max(carrierTyp, 1e-15);
-            if (cr < 0.5) wgt[i] *= (cr / 0.5) * (cr / 0.5);
         }
         std::array<double, 4> cost;
         for (int h = 0; h < 4; h++) {

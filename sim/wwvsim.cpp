@@ -78,9 +78,9 @@ double WwvSim::modulation(int s, double utc)
         m += st.toneMod * std::sin(2 * kPi * f * ts);
     }
     if (!prot && pos >= 45 && pos <= 58 && st.voiceMod > 0) {
-        // crude voice: noise through a resonator wandering 100-400 Hz, bursty
+        // crude voice: noise through a wandering resonator, bursty
         double w = m_norm(m_rng);
-        double f0 = 150.0 + 100.0 * std::sin(2 * kPi * 0.7 * ts);
+        double f0 = st.voiceCentreHz + st.voiceSwingHz * std::sin(2 * kPi * 0.7 * ts);
         double r = 0.995, th = 2 * kPi * f0 / m_c.sampleRate;
         double y = w * 0.05 + 2 * r * std::cos(th) * m_v1[s] - r * r * m_v2[s];
         m_v2[s] = m_v1[s]; m_v1[s] = y;

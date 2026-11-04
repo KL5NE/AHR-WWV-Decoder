@@ -382,6 +382,31 @@ static void testFadingAndWwvh()
     }
 }
 
+static void testMultipathAndVoice()
+{
+    std::printf("[decoder] two-hop multipath and harsh in-band voice\n");
+    {
+        // Two hops 1.8 ms apart independently fade, rotating 100 Hz phase.
+        SimConfig sc = baseSim(kNov2 + 0 * 3600 + 8 * 60 + 16.0);
+        sc.snrDb = 20;
+        sc.st[0].fadeDepth = 0.9; sc.st[0].fadeRateHz = 0.6;
+        sc.st[1].enabled = true; sc.st[1].tickHz = 1000.0; sc.st[1].delay = sc.st[0].delay + 0.0018;
+        sc.st[1].amplitude = 0.9; sc.st[1].fadeDepth = 0.9; sc.st[1].fadeRateHz = 0.7;
+        sc.st[1].carrierPhase = 2.0; sc.seed = 21;
+        RunResult r = runScenario(sc, 420);
+        report("WWV two-hop multipath, 1.8 ms", r);
+        CHECK(r.final.haveTime && r.wrongSeconds == 0, "multipath: time %d wrong %d", r.final.haveTime, r.wrongSeconds);
+    }
+    {
+        // Intentionally strong energy near 100 Hz: do not show wrong time.
+        SimConfig sc = baseSim(kNov2 + 13 * 3600 + 41 * 60 + 5.0);
+        sc.st[0].voiceCentreHz = 150.0; sc.st[0].voiceSwingHz = 100.0;
+        RunResult r = runScenario(sc, 360);
+        report("harsh in-band voice (worst case)", r);
+        CHECK(r.wrongSeconds == 0, "harsh voice produced %d wrong seconds", r.wrongSeconds);
+    }
+}
+
 static void testDropoutHoldover()
 {
     std::printf("[decoder] 3-minute signal loss after lock: holdover and recovery\n");
@@ -520,6 +545,7 @@ int main(int argc, char** argv)
         testAudioAndRates();
         testNoiseSweep();
         testFadingAndWwvh();
+        testMultipathAndVoice();
         testDropoutHoldover();
         testNoFalseLock();
         testFlagsAndRollover();

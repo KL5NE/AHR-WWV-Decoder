@@ -183,14 +183,21 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
         for (int h = 1; h < 4; h++) if (c[p][h] < c[p][b]) b = h;
         return b;
     };
+    // Only count a clear contradiction as a structure error. Weak skywave
+    // pulses can marginally favor a forbidden symbol without being reliable.
+    const double kStructMargin = 0.5;
     for (int p = 0; p < 60; p++) {
-        int b = argmin(p);
-        bool err;
-        if (p == 0) err = b != 0;
-        else if (isMarkerSecond(p)) err = b != 3;
-        else if (isFixedZero(p)) err = b != 1;
-        else err = b == 0 || b == 3;
-        if (err) r.structureErrors++;
+        bool allowed[4] = {false, false, false, false};
+        if (p == 0) allowed[0] = true;
+        else if (isMarkerSecond(p)) allowed[3] = true;
+        else if (isFixedZero(p)) allowed[1] = true;
+        else { allowed[1] = true; allowed[2] = true; }
+        double bestAllowed = 1e300, bestForbidden = 1e300;
+        for (int h = 0; h < 4; h++) {
+            if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
+            else bestForbidden = std::min(bestForbidden, c[p][h]);
+        }
+        if (bestForbidden + kStructMargin < bestAllowed) r.structureErrors++;
     }
     auto bitCost = [&](int p, int bit) { return c[p][bit ? 2 : 1]; };
     // cost of writing `value` into the listed bit positions as BCD
