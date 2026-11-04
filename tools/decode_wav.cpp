@@ -56,10 +56,10 @@ int main(int argc, char** argv)
                 const DecodeResult& r = e.decode;
                 int mon, day;
                 dayOfYearToDate(r.tc.year, r.tc.dayOfYear, mon, day);
-                std::printf("%7.2f s  FRAME %s  %04d-%02d-%02d (day %03d) %02d:%02d UTC  DUT1 %+.1f  LSW %d  %s  weakest %s %.2f%s%s\n",
+                std::printf("%7.2f s  FRAME %s  %04d-%02d-%02d (day %03d) %02d:%02d UTC  DUT1 %+.1f  LSW %d  %s  weakest %s %.2f  frames %d%s%s\n",
                             dec.currentSampleTime(), r.valid ? "accepted" : "rejected", r.tc.year, mon, day, r.tc.dayOfYear,
                             r.tc.hour, r.tc.minute, r.tc.dut1Tenths / 10.0, r.tc.leapSecondWarning,
-                            dstStateName(dstState(r.tc)), r.weakestField.c_str(), r.minMargin,
+                            dstStateName(dstState(r.tc)), r.weakestField.c_str(), r.minMargin, r.framesUsed,
                             r.problems.empty() ? "" : "  : ", r.problems.empty() ? "" : r.problems.back().c_str());
                 break;
             }

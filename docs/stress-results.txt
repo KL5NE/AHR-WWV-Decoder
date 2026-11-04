@@ -1,7 +1,6 @@
-C/N 10 dB steady               time obtained 20/20 (avg 98 s), verified 20/20, trials with a wrong second: 0 (0 s)
-C/N 3 dB steady                time obtained 20/20 (avg 104 s), verified 20/20, trials with a wrong second: 0 (0 s)
-C/N 0 dB steady                time obtained 20/20 (avg 122 s), verified 20/20, trials with a wrong second: 0 (0 s)
-C/N 15 dB, deep fading         time obtained 16/20 (avg 252 s), verified 14/20, trials with a wrong second: 0 (0 s)
-C/N 8 dB, deep fading          time obtained  6/20 (avg 213 s), verified  3/20, trials with a wrong second: 0 (0 s)
-C/N 12 dB, WWV+WWVH fading     time obtained 20/20 (avg 152 s), verified 20/20, trials with a wrong second: 0 (0 s)
-exit 0
+C/N 10 dB steady               time obtained 20/20 (avg 95 s), verified 20/20, trials with a wrong second: 0 (0 s)
+C/N 3 dB steady                time obtained 20/20 (avg 125 s), verified 20/20, trials with a wrong second: 0 (0 s)
+C/N 0 dB steady                time obtained 20/20 (avg 170 s), verified 20/20, trials with a wrong second: 0 (0 s)
+C/N 15 dB, deep fading         time obtained 20/20 (avg 158 s), verified 20/20, trials with a wrong second: 0 (0 s)
+C/N 8 dB, deep fading          time obtained 20/20 (avg 209 s), verified 18/20, trials with a wrong second: 0 (0 s)
+C/N 12 dB, WWV+WWVH fading     time obtained 20/20 (avg 95 s), verified 20/20, trials with a wrong second: 0 (0 s)

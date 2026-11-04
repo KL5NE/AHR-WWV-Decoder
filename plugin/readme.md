@@ -55,7 +55,7 @@ The 60-second code is shown as 6 rows of 10 seconds:
 
 Cells are tinted by field: year, minute, hour, day of year, DUT1, flags. The current second is outlined. Hover a cell for its meaning.
 
-Below the code are DUT1, DST, the leap-second warning, the frame counters, the confidence of the last frame, and why the last frame was rejected (if it was).
+Below the code are DUT1, DST, the leap-second warning, the frame count ("3 / 32 decoded (9 %)" since the decoder last started), the confidence of the last frame, and why the last frame was rejected (if it was).
 
 <h3>Signal</h3>
 
@@ -83,4 +83,5 @@ Below the code are DUT1, DST, the leap-second warning, the frame counters, the c
 - No REST/web API for this channel. SDRangel answers "not implemented" for its settings and report endpoints, because adding them needs changes inside SDRangel.
 - No server (headless) build.
 - Leap seconds are not handled specially. The decoder re-acquires after one.
+- When fading spoils one minute, the decoder reads it together with the previous one or two minutes. It still needs two independent readings to show VERIFIED.
 - The PC comparison cannot see SDRangel's internal buffering. Calibrate with **Latency corr.** if you know your setup.

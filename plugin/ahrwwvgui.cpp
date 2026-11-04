@@ -397,7 +397,17 @@ void AHRWWVGUI::updateStatusPanels()
     }
 
     ui->confidenceValue->setText(st.verifiedFrames > 0 || st.frameConfidence > 0 ? QString::number(st.frameConfidence, 'f', 2) : "-");
-    ui->framesValue->setText(QString("%1 valid / %2 rejected").arg(m_report.framesAccepted).arg(m_report.framesRejected));
+    {
+        // Success rate since the decoder last started (Reset, Decode on, or a Δf change).
+        quint32 total = m_report.framesAccepted + m_report.framesRejected;
+        if (total == 0) {
+            ui->framesValue->setText("none yet");
+        } else {
+            double pct = 100.0 * m_report.framesAccepted / total;
+            ui->framesValue->setText(QString("%1 / %2 decoded (%3 %)")
+                .arg(m_report.framesAccepted).arg(total).arg(pct, 0, 'f', 0));
+        }
+    }
     ui->problemValue->setText(st.lastProblem.empty() ? QString("-") : QString::fromStdString(st.lastProblem));
 
     // Signal

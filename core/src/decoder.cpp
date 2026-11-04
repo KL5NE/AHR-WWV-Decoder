@@ -29,7 +29,8 @@ const double kExpected[4][3] = {
 const Symbol kHyp[4] = {Symbol::None, Symbol::Zero, Symbol::One, Symbol::Marker};
 
 bool isMarkerPos(int p) { return p % 10 == 9; }
-bool isFixedZeroPos(int p)
+// NIST "unused" seconds: 0 from WWV, but WWVH sends 1 at second 47.
+bool isUnusedPos(int p)
 {
     switch (p) {
     case 1: case 8: case 14: case 18: case 24: case 27: case 28: case 34:
@@ -245,6 +246,8 @@ bool edgeCrossing(const Ring& ring, double b, Fn value, double& tc, double& high
 
 constexpr double kLockContrast = 0.20;   // fold contrast needed to declare second lock
 constexpr double kUnlockContrast = 0.10;
+constexpr double kMinPulseGain = 0.25;  // weakest faded pulse level modelled
+constexpr double kMaxPulseGain = 1.5;
 constexpr double kMinSymbolConf = 0.15;  // below this a second is shown as "?"
 constexpr double kEdgeAlpha = 0.05;      // fine timing loop gain (~40 s averaging)
 
@@ -307,6 +310,13 @@ struct WwvDecoder::Impl {
     int verified = 0;
     TimeCode lastTc;
     std::deque<std::pair<double, double>> candidates; // (frame minute UTC, b59 sample time)
+    // Soft costs of the most recent consecutive frames, for joint decoding.
+    struct RecentFrame { SoftFrame soft; double b59; };
+    std::deque<RecentFrame> recentFrames;
+    static constexpr int kMaxJointFrames = 3;
+    // Newest frame (b59) that the current time was first established from.
+    // Verification needs a later decode that uses none of those frames.
+    double timeBasisEnd = -1e18;
 
     bool tickActive = false;
     double tickStart = 0, tickEnd = 0;
@@ -553,10 +563,22 @@ struct WwvDecoder::Impl {
             double sl2 = sn * sn / (r * r) / neff;
             wgt[i] = std::min(1.0, (0.12 * 0.12) / std::max(sl2, 1e-12));
         }
+        // Fading-aware templates: on HF the whole pulse fades together within
+        // a second, so a "1" received at 30 % strength reads A~0.3, B~0.3, not
+        // A~0.3, B~1 (live WWVH 15 MHz, Palmer AK, 2026-11-04). The A window is
+        // on for every pulse symbol, so its level is a symbol-independent
+        // estimate of this second's pulse gain; the B/C templates are scaled
+        // by it. The A term itself keeps the fixed template, so the decision
+        // between "no pulse" and "pulse" is unchanged.
+        double g = std::clamp(lv[0], kMinPulseGain, kMaxPulseGain);
         std::array<double, 4> cost;
         for (int h = 0; h < 4; h++) {
             cost[h] = 0;
-            for (int i = 0; i < 3; i++) { double e = lv[i] - kExpected[h][i]; cost[h] += wgt[i] * e * e; }
+            for (int i = 0; i < 3; i++) {
+                double scale = (i == 0 || h == 0) ? 1.0 : g;
+                double e = lv[i] - scale * kExpected[h][i];
+                cost[h] += wgt[i] * e * e;
+            }
         }
         int best = 0, second = -1;
         for (int h = 1; h < 4; h++) if (cost[h] < cost[best]) best = h;
@@ -630,7 +652,6 @@ struct WwvDecoder::Impl {
     {
         if (p == 0) return h.cost[0];
         if (isMarkerPos(p)) return h.cost[3];
-        if (isFixedZeroPos(p)) return h.cost[1];
         return std::min(h.cost[1], h.cost[2]);
     }
 
@@ -682,7 +703,25 @@ struct WwvDecoder::Impl {
         double b0 = syms[0].boundaryTime, b59 = syms[59].boundaryTime;
         if (std::fabs((b59 - b0) - 59.0) > 0.1) return;
 
+        // Keep the recent frames: a re-decode of the same frame after
+        // re-alignment replaces it; a gap in the minute sequence starts over.
+        if (!recentFrames.empty() && std::fabs(b59 - recentFrames.back().b59) < 0.5)
+            recentFrames.pop_back();
+        if (!recentFrames.empty() && std::fabs(b59 - recentFrames.back().b59 - 60.0) > 0.5)
+            recentFrames.clear();
+        recentFrames.push_back(RecentFrame{soft, b59});
+        while (int(recentFrames.size()) > kMaxJointFrames) recentFrames.pop_front();
+
         DecodeResult r = decodeFrameSoft(soft);
+        double firstB59 = b59; // oldest frame this decode used
+        // A single frame can be too weak after a fade; read it together with
+        // the previous one or two minutes before giving up on it.
+        for (int k = 2; !r.valid && k <= int(recentFrames.size()); k++) {
+            std::vector<SoftFrame> fs;
+            for (size_t i = recentFrames.size() - k; i < recentFrames.size(); i++) fs.push_back(recentFrames[i].soft);
+            DecodeResult rj = decodeFramesSoft(fs);
+            if (rj.valid) { r = rj; firstB59 = recentFrames[recentFrames.size() - k].b59; }
+        }
         st.frameConfidence = std::clamp(r.minMargin, 0.0, 1.0);
         st.lastFrame = syms;
 
@@ -706,16 +745,22 @@ struct WwvDecoder::Impl {
             // that agree confirm each other even if frames in between failed.
             bool confirmedByOld = false;
             for (auto& c : candidates)
-                if (std::fabs(M - c.first) > 0.5 && std::fabs((M - c.first) - std::round(b59 - c.second)) < 0.5)
+                if (std::fabs(M - c.first) > 0.5 && std::fabs((M - c.first) - std::round(b59 - c.second)) < 0.5
+                    && c.second < firstB59 - 0.5) // no frame shared with this decode
                     confirmedByOld = true;
             while (!candidates.empty() && b59 - candidates.front().second > 900.0) candidates.pop_front();
             candidates.emplace_back(M, b59);
 
             if (agree) {
-                verified++;
-                st.lastProblem = "";
+                if (firstB59 > timeBasisEnd + 0.5) {
+                    verified++;
+                    st.lastProblem = "";
+                } else {
+                    st.lastProblem = "agrees; waiting for an independent frame";
+                }
             } else if (confirmedByOld) {
                 verified = std::max(verified + 1, 2);
+                timeBasisEnd = b59;
                 st.lastProblem = haveTime ? "time changed: confirmed by two frames" : "";
             } else if (haveTime && verified >= 2) {
                 accept = false; // keep the verified time; this frame stays a candidate
@@ -731,6 +776,7 @@ struct WwvDecoder::Impl {
                 st.lastProblem = "weak decode; waiting for confirmation";
             } else {
                 verified = 1;
+                timeBasisEnd = b59;
                 st.lastProblem = "";
             }
         }
@@ -761,6 +807,7 @@ struct WwvDecoder::Impl {
                 // expected symbol over their best alternative (max 1 each).
                 double excess = 0, support = 0;
                 for (int p = 0; p < 60; p++) {
+                    if (isUnusedPos(p)) continue;
                     int e = int(pf[p]) - int(Symbol::None);
                     double mn = *std::min_element(soft[p].begin(), soft[p].end());
                     double alt = 1e300;
@@ -768,7 +815,7 @@ struct WwvDecoder::Impl {
                     excess += soft[p][e] - mn;
                     support += std::clamp(alt - soft[p][e], -1.0, 1.0);
                 }
-                consistent = excess <= 1.5 && support >= 40.0 && r.structureErrors <= 3;
+                consistent = excess <= 1.5 && support >= 30.0 && r.structureErrors <= 3;
                 // An unverified time that this frame clearly contradicts is dropped.
                 if (!consistent && verified < 2 && excess > 2.0) {
                     haveTime = false;

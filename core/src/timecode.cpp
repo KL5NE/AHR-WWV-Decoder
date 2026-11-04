@@ -26,17 +26,10 @@ const int kDst1 = 55;
 
 bool isMarkerSecond(int s) { return s % 10 == 9; }
 
-// Seconds that always carry a binary 0.
-bool isFixedZero(int s)
-{
-    switch (s) {
-    case 1: case 8: case 14: case 18: case 24: case 27: case 28: case 34:
-    case 42: case 43: case 44: case 45: case 46: case 47: case 48:
-        return true;
-    default:
-        return false;
-    }
-}
+// Seconds 1, 8, 14, 18, 24, 27, 28, 34 and 42-48 are listed as unused by
+// NIST SP 250-67. WWV transmits 0 there, but WWVH was observed sending 1 at
+// second 47 in every minute (15 MHz, Palmer AK, 2026-11-04), so the decoders
+// accept either value there and take no data from them.
 
 template <size_t N>
 void putBcd(Frame& f, const int (&pos)[N], int value)
@@ -131,8 +124,6 @@ DecodeResult decodeFrame(const Frame& f)
             r.problems.push_back("unexpected marker at second " + std::to_string(s));
         } else if (f[s] == Symbol::None) {
             r.problems.push_back("missing pulse at second " + std::to_string(s));
-        } else if (isFixedZero(s) && f[s] == Symbol::One) {
-            r.problems.push_back("unused bit " + std::to_string(s) + " is 1");
         }
     }
 
@@ -190,8 +181,7 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
         bool allowed[4] = {false, false, false, false};
         if (p == 0) allowed[0] = true;
         else if (isMarkerSecond(p)) allowed[3] = true;
-        else if (isFixedZero(p)) allowed[1] = true;
-        else { allowed[1] = true; allowed[2] = true; }
+        else { allowed[1] = true; allowed[2] = true; } // data or unused bit
         double bestAllowed = 1e300, bestForbidden = 1e300;
         for (int h = 0; h < 4; h++) {
             if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
@@ -252,6 +242,140 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
     for (int p = 0; p < 60; p++) best[p] = c[p][argmin(p)];
     std::nth_element(best, best + 30, best + 60);
     double sigma = std::sqrt(best[30] / 2.366);
+    double need = std::max(minFieldMargin, 2.0 * sigma);
+    if (r.minMargin < need)
+        r.problems.push_back(r.weakestField + " too weak to read");
+    r.valid = r.problems.empty();
+    return r;
+}
+
+namespace {
+
+int structureErrorsOf(const SoftFrame& c)
+{
+    const double kStructMargin = 0.5;
+    int n = 0;
+    for (int p = 0; p < 60; p++) {
+        bool allowed[4] = {false, false, false, false};
+        if (p == 0) allowed[0] = true;
+        else if (isMarkerSecond(p)) allowed[3] = true;
+        else { allowed[1] = true; allowed[2] = true; }
+        double bestAllowed = 1e300, bestForbidden = 1e300;
+        for (int h = 0; h < 4; h++) {
+            if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
+            else bestForbidden = std::min(bestForbidden, c[p][h]);
+        }
+        if (bestForbidden + kStructMargin < bestAllowed) n++;
+    }
+    return n;
+}
+
+template <size_t N>
+double bcdCostOf(const SoftFrame& c, const int (&pos)[N], int value)
+{
+    double s = 0;
+    for (size_t i = 0; i < N; i++) s += c[pos[i]][((value >> i) & 1) ? 2 : 1];
+    return s;
+}
+
+} // namespace
+
+DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& f, double minFieldMargin)
+{
+    if (f.size() == 1) return decodeFrameSoft(f[0], minFieldMargin);
+    DecodeResult r;
+    const int K = int(f.size());
+    if (K == 0) { r.problems.push_back("no frames"); return r; }
+    r.framesUsed = K;
+    int worstStructure = 0;
+    for (auto& c : f) worstStructure = std::max(worstStructure, structureErrorsOf(c));
+    r.structureErrors = worstStructure;
+    r.minMargin = 1e300;
+    auto note = [&](const char* name, double best, double second) {
+        double m = second - best;
+        if (m < r.minMargin) { r.minMargin = m; r.weakestField = name; }
+    };
+
+    // Time of day of the newest frame, 0..1439 minutes; frame k is K-1-k
+    // minutes earlier.
+    double bestT = 1e300, secondT = 1e300;
+    int mod = 0;
+    for (int m = 0; m < 1440; m++) {
+        double s = 0;
+        for (int k = 0; k < K; k++) {
+            int mk = ((m - (K - 1 - k)) % 1440 + 1440) % 1440;
+            int hh = mk / 60, mm = mk % 60;
+            s += bcdCostOf(f[k], kMinuteUnits, mm % 10) + bcdCostOf(f[k], kMinuteTens, mm / 10)
+               + bcdCostOf(f[k], kHourUnits, hh % 10) + bcdCostOf(f[k], kHourTens, hh / 10);
+        }
+        if (s < bestT) { secondT = bestT; bestT = s; mod = m; }
+        else if (s < secondT) secondT = s;
+    }
+    note("time of day", bestT, secondT);
+    r.tc.hour = mod / 60;
+    r.tc.minute = mod % 60;
+    // Frames before midnight (for the chosen time of day) carry the day before.
+    int framesBefore = std::max(0, (K - 1) - mod); // frames k < framesBefore are on the previous day
+
+    // Date of the newest frame: every day 2000-01-01 .. 2099-12-31.
+    const int64_t d0 = daysFromCivil(2000, 1, 1), d1 = daysFromCivil(2099, 12, 31);
+    auto dateCost = [&](const SoftFrame& c, int year, int doy) {
+        int y2 = year % 100;
+        return bcdCostOf(c, kYearUnits, y2 % 10) + bcdCostOf(c, kYearTens, y2 / 10)
+             + bcdCostOf(c, kDoyUnits, doy % 10) + bcdCostOf(c, kDoyTens, (doy / 10) % 10)
+             + bcdCostOf(c, kDoyHundreds, doy / 100);
+    };
+    double bestD = 1e300, secondD = 1e300;
+    int bestYear = 2000, bestDoy = 1;
+    int py = 1999, pdoy = 365; // the day before d (1999-12-31 for the first)
+    int y = 2000, doy = 1;
+    for (int64_t d = d0; d <= d1; d++) {
+        double s = 0;
+        for (int k = 0; k < K; k++)
+            s += k < framesBefore ? dateCost(f[k], py, pdoy) : dateCost(f[k], y, doy);
+        if (s < bestD) { secondD = bestD; bestD = s; bestYear = y; bestDoy = doy; }
+        else if (s < secondD) secondD = s;
+        py = y; pdoy = doy;
+        if (++doy > (isLeapYear(y) ? 366 : 365)) { doy = 1; y++; }
+    }
+    note("date", bestD, secondD);
+    r.tc.year = bestYear;
+    r.tc.dayOfYear = bestDoy;
+
+    // Flags and DUT1: same in every frame.
+    auto sumBit = [&](int pos, int v) { double s = 0; for (auto& c : f) s += c[pos][v ? 2 : 1]; return s; };
+    {
+        double best = 1e300, second = 1e300;
+        int bv = 0;
+        for (int v = -7; v <= 7; v++) {
+            double plus = 0, minus = 0;
+            for (auto& c : f) {
+                plus += c[kUt1Sign][2] + bcdCostOf(c, kDut1, std::abs(v));
+                minus += c[kUt1Sign][1] + bcdCostOf(c, kDut1, std::abs(v));
+            }
+            double x = v > 0 ? plus : v < 0 ? minus : std::min(plus, minus);
+            if (x < best) { second = best; best = x; bv = v; }
+            else if (x < second) second = x;
+        }
+        note("DUT1", best, second);
+        r.tc.dut1Tenths = bv;
+    }
+    auto flag = [&](const char* name, int pos) {
+        double c0 = sumBit(pos, 0), c1 = sumBit(pos, 1);
+        note(name, std::min(c0, c1), std::max(c0, c1));
+        return c1 < c0;
+    };
+    r.tc.leapSecondWarning = flag("leap second warning", kLsw);
+    r.tc.dst1 = flag("DST1", kDst1);
+    r.tc.dst2 = flag("DST2", kDst2);
+
+    if (worstStructure > 3)
+        r.problems.push_back(std::to_string(worstStructure) + " seconds break the frame structure");
+    std::vector<double> best;
+    for (auto& c : f)
+        for (int p = 0; p < 60; p++) best.push_back(*std::min_element(c[p].begin(), c[p].end()));
+    std::nth_element(best.begin(), best.begin() + best.size() / 2, best.end());
+    double sigma = std::sqrt(best[best.size() / 2] / 2.366);
     double need = std::max(minFieldMargin, 2.0 * sigma);
     if (r.minMargin < need)
         r.problems.push_back(r.weakestField + " too weak to read");

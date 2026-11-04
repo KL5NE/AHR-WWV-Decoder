@@ -96,7 +96,6 @@ static void testRejects()
     struct Case { const char* name; std::function<void(Frame&)> mut; } cases[] = {
         {"missing marker 29", [](Frame& f) { f[29] = Symbol::One; }},
         {"pulse in second 0", [](Frame& f) { f[0] = Symbol::Zero; }},
-        {"unused bit 44 set", [](Frame& f) { f[44] = Symbol::One; }},
         {"minute tens 6", [](Frame& f) { f[15] = Symbol::Zero; f[16] = Symbol::One; f[17] = Symbol::One; }},
         {"minute units 12", [](Frame& f) { f[10] = Symbol::Zero; f[11] = Symbol::Zero; f[12] = Symbol::One; f[13] = Symbol::One; }},
         {"hour 25", [](Frame& f) { f[20] = Symbol::One; f[21] = Symbol::Zero; f[22] = Symbol::One; f[23] = Symbol::Zero; f[25] = Symbol::Zero; f[26] = Symbol::One; }},
@@ -109,6 +108,13 @@ static void testRejects()
         c.mut(f);
         DecodeResult r = decodeFrame(f);
         CHECK(!r.valid, "%s accepted", c.name);
+    }
+    // NIST lists 42-48 as unused, but WWVH sends 1 at second 47 (live
+    // 15 MHz, 2026-11-04): an unused bit must not reject the frame.
+    {
+        Frame f = good;
+        f[47] = Symbol::One;
+        CHECK(decodeFrame(f).valid, "WWVH-style frame with bit 47 set rejected");
     }
     // day 366 is only legal in leap years
     TimeCode t2 = tc; t2.year = 2026; t2.dayOfYear = 366;
@@ -171,6 +177,80 @@ static void testSoft()
         if (decodeFrameSoft(sf).valid) falseOk++;
     }
     CHECK(falseOk == 0, "%d/500 noise frames decoded", falseOk);
+}
+
+// Joint decode of consecutive minutes: a fade that wipes a different field in
+// each minute must still give the right time, across hour, midnight and new
+// year carries, and noise must never decode.
+static void testJoint()
+{
+    std::printf("[timecode] joint decoding of consecutive faded minutes\n");
+    const double ex[4][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {1, 1, 1}};
+    std::mt19937 rng(11);
+    std::normal_distribution<double> n(0, 1);
+    auto soft = [&](int64_t minuteUnix, int fadeLo, int fadeHi, double sigma) {
+        TimeCode tc = unixToTimeCode(minuteUnix);
+        tc.dut1Tenths = -1;
+        Frame f = encodeFrame(tc);
+        SoftFrame sf;
+        for (int p = 0; p < 60; p++) {
+            double lv[3];
+            for (int i = 0; i < 3; i++) lv[i] = ex[int(f[p])][i] + sigma * n(rng);
+            if (p >= fadeLo && p <= fadeHi && p % 10 != 9) for (double& v : lv) v = 0.5; // faded: no information
+            for (int h = 0; h < 4; h++) {
+                double c = 0;
+                for (int i = 0; i < 3; i++) c += (lv[i] - ex[h][i]) * (lv[i] - ex[h][i]);
+                sf[p][h] = c;
+            }
+        }
+        return sf;
+    };
+    struct Case { const char* name; int64_t start; } cases[] = {
+        {"mid-day", 1793755620},                  // 2026-11-04 01:27
+        {"hour carry", 1793755620 + 31 * 60},     // 01:58 -> 01:59 -> 02:00
+        {"midnight", 1793750400 - 120},           // 23:58 -> 00:00 (day 307 -> 308)
+        {"new year", 1798761600 - 120},           // 2026-12-31 23:58 -> 2027-01-01 00:00
+    };
+    for (auto& c : cases) {
+        // minute k loses a different field: hour, minute units, day of year
+        std::vector<SoftFrame> fs = {soft(c.start, 20, 26, 0.1), soft(c.start + 60, 10, 13, 0.1),
+                                     soft(c.start + 120, 30, 41, 0.1)};
+        int singles = 0;
+        for (auto& f : fs) if (decodeFrameSoft(f).valid) singles++;
+        DecodeResult r = decodeFramesSoft(fs);
+        int64_t got = timeCodeToUnix(r.tc);
+        CHECK(singles == 0, "%s: %d faded single frame(s) accepted", c.name, singles);
+        CHECK(r.valid && got == c.start + 120 && r.tc.dut1Tenths == -1 && r.framesUsed == 3,
+              "%s: joint decode valid=%d %s (%s %.2f)", c.name, r.valid, formatUnix(double(got), false).c_str(),
+              r.weakestField.c_str(), r.minMargin);
+        std::printf("  %-10s single frames valid %d/3, joint -> %s, weakest %s %.2f\n", c.name, singles,
+                    formatUnix(double(got), false).c_str(), r.weakestField.c_str(), r.minMargin);
+    }
+    // the same field faded in every minute cannot be recovered and must not be guessed
+    {
+        std::vector<SoftFrame> fs = {soft(1793755620, 30, 41, 0.1), soft(1793755680, 30, 41, 0.1)};
+        DecodeResult r = decodeFramesSoft(fs);
+        CHECK(!r.valid, "day of year guessed with no information (%s %.2f)", r.weakestField.c_str(), r.minMargin);
+    }
+    // noise frames, joined in pairs and triples, must never decode
+    int falseOk = 0;
+    for (int i = 0; i < 300; i++) {
+        std::vector<SoftFrame> fs;
+        for (int k = 0; k < 2 + i % 2; k++) {
+            SoftFrame sf;
+            for (int p = 0; p < 60; p++) {
+                double lv[3] = {0.5 + 0.5 * n(rng), 0.5 + 0.5 * n(rng), 0.5 + 0.5 * n(rng)};
+                for (int h = 0; h < 4; h++) {
+                    double c = 0;
+                    for (int j = 0; j < 3; j++) c += (lv[j] - ex[h][j]) * (lv[j] - ex[h][j]);
+                    sf[p][h] = c;
+                }
+            }
+            fs.push_back(sf);
+        }
+        if (decodeFramesSoft(fs).valid) falseOk++;
+    }
+    CHECK(falseOk == 0, "%d/300 joined noise frame sets decoded", falseOk);
 }
 
 static void testCalendar()
@@ -533,6 +613,7 @@ int main(int argc, char** argv)
     testRoundTrip();
     testRejects();
     testSoft();
+    testJoint();
     testCalendar();
     testSkywave();
     {

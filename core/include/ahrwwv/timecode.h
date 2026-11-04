@@ -51,6 +51,7 @@ struct DecodeResult {
     double minMargin = 0.0;            // weakest field: cost gap to next-best value
     std::string weakestField;
     int structureErrors = 0;           // seconds whose best guess breaks the frame structure
+    int framesUsed = 1;                // consecutive frames read together (decodeFramesSoft)
 };
 
 // Per-second hypothesis costs, index 0=None 1=Zero 2=One 3=Marker (lower = better;
@@ -62,6 +63,16 @@ using SoftFrame = std::array<std::array<double, 4>, 60>;
 // marker/second-0/unused-bit structure holds (<= 3 bad seconds) and every
 // field beats its runner-up by at least minFieldMargin.
 DecodeResult decodeFrameSoft(const SoftFrame& cost, double minFieldMargin = 0.25);
+
+// Joint maximum-likelihood decode of 2 or more consecutive frames (oldest
+// first) that carry consecutive UTC minutes; the result is the newest frame's
+// time code. On HF a fade can wipe out a few bits of one minute; the same
+// fields in the neighbouring minutes are then read together, so one faded
+// minute no longer blocks the decode. Time of day and date are each chosen
+// over all frames (with the hour/day/year carries in between); DUT1, leap
+// second warning and DST bits are assumed unchanged over the span. Validity
+// rules are the same as decodeFrameSoft, applied per frame for structure.
+DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& frames, double minFieldMargin = 0.25);
 
 // Decode a full frame. Rejects frames with bad markers, a pulse in second 0,
 // non-zero unused bits, impossible BCD digits, or out-of-range fields.
