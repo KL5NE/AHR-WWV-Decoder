@@ -1,0 +1,32 @@
+name: Reflections Lake NEC preliminary run
+on:
+  push:
+    branches: [experiment/reflections-tower-nec]
+    paths:
+      - 'experiments/reflections-lake/**'
+      - '.github/workflows/reflections-tower-nec.yml'
+  workflow_dispatch:
+jobs:
+  nec2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install NEC-2 solver
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nec2c
+      - name: Check solver and run idealized model
+        shell: bash
+        run: |
+          set -euxo pipefail
+          nec2c -h || true
+          mkdir -p experiments/reflections-lake/results
+          nec2c -i experiments/reflections-lake/model_idealized.nec -o experiments/reflections-lake/results/nec_output.txt
+          grep -i -n -E 'INPUT IMPEDANCE|POWER INPUT|ERROR|WARNING|NEAR ELECTRIC|NEAR MAGNETIC|ANTENNA INPUT' experiments/reflections-lake/results/nec_output.txt | head -100 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reflections-lake-nec2-preliminary
+          path: |
+            experiments/reflections-lake/model_idealized.nec
+            experiments/reflections-lake/results/
