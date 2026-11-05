@@ -839,15 +839,19 @@ struct WwvDecoder::Impl {
                 } else {
                     st.lastProblem = "agrees; waiting for a disjoint raw-minute window";
                 }
+            } else if (haveTime && verified >= 2) {
+                // Never replace an established VERIFIED clock with contradictory
+                // time, even if two later joint candidates agree with each
+                // other. Flag the disagreement and retain the trusted anchor;
+                // reacquisition requires an explicit reset or loss of lock.
+                accept = false;
+                st.lastProblem = "candidate contradicts VERIFIED time; manual review/reacquisition needed";
             } else if (confirmedByOld) {
                 verified = std::max(verified + 1, 2);
                 confirmationPreviousLastFrameId = oldLastId;
                 confirmationCurrentFirstFrameId = firstId;
                 timeBasisLastFrameId = lastId;
                 st.lastProblem = haveTime ? "time changed: confirmed by two disjoint raw-minute windows" : "";
-            } else if (haveTime && verified >= 2) {
-                accept = false; // keep the verified time; this frame stays a candidate
-                st.lastProblem = "frame disagrees with verified time; waiting for confirmation";
             } else if (haveTime) {
                 // Conflicts with an unverified time: trust neither until confirmed.
                 accept = false;
