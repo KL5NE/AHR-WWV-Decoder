@@ -328,6 +328,7 @@ struct RunResult {
     int wrongSeconds = 0, labelledSeconds = 0, frameOk = 0, frameBad = 0;
     double maxBoundaryErr = 0;   // vs. truth, after Verified (s)
     int holdoverSeconds = 0;
+    int provisionalSeen = 0, provisionalPublicUtcLeaks = 0, provisionalClockOffsetLeaks = 0;
     DecoderStatus final;
     double finalUtcErr = 1e9;
 };
@@ -375,6 +376,12 @@ static RunResult runScenario(const SimConfig& sc, double seconds, bool audio = f
         }
         double t = dec.currentSampleTime();
         const DecoderStatus& s = dec.status();
+        if (s.state == DecoderState::Decoded) {
+            rr.provisionalSeen++;
+            double tentativeUtc;
+            if (dec.currentUtc(tentativeUtc)) rr.provisionalPublicUtcLeaks++;
+            if (s.haveClockOffset) rr.provisionalClockOffsetLeaks++;
+        }
         if (rr.tDecoded < 0 && (s.state == DecoderState::Decoded || s.state == DecoderState::Verified)) rr.tDecoded = t;
         if (rr.tVerified < 0 && s.state == DecoderState::Verified) rr.tVerified = t;
         if (t >= nextReport) {
@@ -424,6 +431,9 @@ static void testClean()
         CHECK(r.final.state == DecoderState::Verified, "not verified");
         CHECK(r.tVerified > 0 && r.tVerified < 190, "verify took %.0f s", r.tVerified);
         CHECK(r.wrongSeconds == 0, "%d wrong labelled seconds (including provisional DECODED)", r.wrongSeconds);
+        CHECK(r.provisionalSeen > 0 && r.provisionalPublicUtcLeaks == 0 && r.provisionalClockOffsetLeaks == 0,
+              "provisional time leaked: states %d, UTC %d, PC offset %d",
+              r.provisionalSeen, r.provisionalPublicUtcLeaks, r.provisionalClockOffsetLeaks);
         CHECK(r.final.confirmationPreviousLastFrameId > 0
               && r.final.confirmationPreviousLastFrameId < r.final.confirmationCurrentFirstFrameId,
               "VERIFIED did not use disjoint raw minutes: %llu / %llu",

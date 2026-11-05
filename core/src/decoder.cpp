@@ -1092,7 +1092,10 @@ void WwvDecoder::setEnvelopeTap(EnvelopeTap fn, void* user)
 }
 double WwvDecoder::detectorDelay() const { return d->delay; }
 double WwvDecoder::currentSampleTime() const { return d->lastSampleTime; }
-bool WwvDecoder::utcAt(double t, double& utc) const { return d->utcAt(t, utc); }
+// The public UTC API must not expose a provisional DECODED hypothesis.
+// Internal Impl::utcAt remains available solely for comparing candidate
+// frames, never for a trusted clock, PC offset or time-labelled events.
+bool WwvDecoder::utcAt(double t, double& utc) const { return d->verified >= 2 && d->utcAt(t, utc); }
 
 void WwvDecoder::setNextSampleTimestamp(double pc)
 {
