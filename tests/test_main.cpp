@@ -423,7 +423,12 @@ static void testClean()
         report(nm, r);
         CHECK(r.final.state == DecoderState::Verified, "not verified");
         CHECK(r.tVerified > 0 && r.tVerified < 190, "verify took %.0f s", r.tVerified);
-        CHECK(r.wrongSeconds == 0, "%d wrong seconds", r.wrongSeconds);
+        CHECK(r.wrongSeconds == 0, "%d wrong labelled seconds (including provisional DECODED)", r.wrongSeconds);
+        CHECK(r.final.confirmationPreviousLastFrameId > 0
+              && r.final.confirmationPreviousLastFrameId < r.final.confirmationCurrentFirstFrameId,
+              "VERIFIED did not use disjoint raw minutes: %llu / %llu",
+              (unsigned long long) r.final.confirmationPreviousLastFrameId,
+              (unsigned long long) r.final.confirmationCurrentFirstFrameId);
         CHECK(r.maxBoundaryErr < 0.001, "boundary error %.4f", r.maxBoundaryErr);
         CHECK(r.final.station == StationId::WWV, "station %s", stationName(r.final.station));
     }
@@ -630,6 +635,23 @@ static void testFlagsAndRollover()
     }
 }
 
+// Verification evidence is never reusable: each raw-minute span must be
+// disjoint, and no shifted/gapped joint window can be passed to the decoder.
+static void testRawMinuteEvidenceSafety()
+{
+    std::printf("[decoder] raw-minute identity, alignment and independence guards\n");
+    CHECK(consecutiveRawMinutes({10, 11, 12}, {59.1, 119.1, 179.1}), "valid consecutive window rejected");
+    CHECK(!consecutiveRawMinutes({10, 10, 11}, {59, 119, 179}), "duplicate raw-minute ID accepted");
+    CHECK(!consecutiveRawMinutes({10, 12}, {59, 179}), "missing minute / 120 s jump accepted");
+    CHECK(!consecutiveRawMinutes({10, 11}, {59, 129}), "shifted 70-second window accepted");
+    CHECK(!consecutiveRawMinutes({10, 11}, {59, 118}), "shifted 59-second window accepted");
+    CHECK(!consecutiveRawMinutes({}, {}), "empty evidence window accepted");
+    CHECK(disjointRawMinuteWindows(1, 3, 4, 6), "non-overlapping windows rejected");
+    CHECK(!disjointRawMinuteWindows(1, 3, 3, 5), "overlap accepted as independent");
+    CHECK(!disjointRawMinuteWindows(1, 5, 2, 3), "nested overlap accepted as independent");
+    CHECK(!disjointRawMinuteWindows(0, 0, 3, 4), "uninitialized frame ID accepted");
+}
+
 static void testClockOffset()
 {
     std::printf("[decoder] PC clock offset measurement\n");
@@ -683,6 +705,7 @@ int main(int argc, char** argv)
         std::printf("[engine] measured detector delay at 48 kHz: %.2f ms\n", d.detectorDelay() * 1e3);
     }
     testEnvelopeTap();
+    testRawMinuteEvidenceSafety();
     testClean();
     if (!quick) {
         testAudioAndRates();

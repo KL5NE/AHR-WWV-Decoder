@@ -138,6 +138,16 @@ struct Harness
                 for (auto& s : r.newSeconds) (void) s;
                 if (r.status.state == DecoderState::Verified && !sawVerified) { sawVerified = true; firstVerifiedAt = simTimeFed; }
                 if (r.status.state == DecoderState::Holdover) sawHoldover = true;
+                if (r.status.state == DecoderState::Decoded) {
+                    CHECK(!r.haveUtc, "provisional DECODED report exposed UTC");
+                    CHECK(!r.status.haveClockOffset, "provisional DECODED report exposed PC clock offset");
+                }
+                if (r.status.state == DecoderState::Verified && r.status.confirmationPreviousLastFrameId > 0) {
+                    CHECK(r.status.confirmationPreviousLastFrameId < r.status.confirmationCurrentFirstFrameId,
+                          "VERIFIED windows share a raw minute: %llu vs %llu",
+                          (unsigned long long) r.status.confirmationPreviousLastFrameId,
+                          (unsigned long long) r.status.confirmationCurrentFirstFrameId);
+                }
                 if (r.haveUtc && r.status.haveTime)
                 {
                     // utcAtRef refers to the last 12 kHz sample handed to the decoder; compare with the
