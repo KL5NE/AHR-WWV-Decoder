@@ -180,7 +180,9 @@ void AHRWWVGUI::handleReport(const AHRWWVReport& report)
     }
 
     if (report.status.framePosition >= 0 && (report.status.state != DecoderState::Searching)) {
-        ui->timeCodeStrip->setFrame(report.status.frame, report.status.framePosition);
+        ui->timeCodeStrip->setFrame(report.status.frame, report.status.framePosition,
+                                    report.status.station,
+                                    report.status.haveTime ? &report.status.lastTimeCode : nullptr);
     } else if (report.status.state == DecoderState::Searching || report.status.state == DecoderState::SecondLock) {
         ui->timeCodeStrip->clear();
     }
