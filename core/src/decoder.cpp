@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <limits>
 
 namespace ahrwwv {
@@ -248,6 +249,7 @@ constexpr double kLockContrast = 0.20;   // fold contrast needed to declare seco
 constexpr double kUnlockContrast = 0.10;
 constexpr double kMinPulseGain = 0.25;  // weakest faded pulse level modelled
 constexpr double kMaxPulseGain = 1.5;
+constexpr size_t kHrefPulses = 31;     // pulses in the median pulse reference
 constexpr double kMinSymbolConf = 0.15;  // below this a second is shown as "?"
 constexpr double kEdgeAlpha = 0.05;      // fine timing loop gain (~40 s averaging)
 
@@ -289,6 +291,7 @@ struct WwvDecoder::Impl {
     double nextB = 0;
 
     double href = 0;
+    std::deque<double> hrefHist; // window-A levels of recent confident pulses
     double offVar = 0; bool offInit = false;
     double noiseFloor = 0;
     double noiseMag = 0;  // tracked off-pulse 100 Hz magnitude (noise bias)
@@ -313,7 +316,10 @@ struct WwvDecoder::Impl {
     // Soft costs of the most recent consecutive frames, for joint decoding.
     struct RecentFrame { SoftFrame soft; double b59; };
     std::deque<RecentFrame> recentFrames;
-    static constexpr int kMaxJointFrames = 3;
+    // Up to five consecutive minutes are read together. Faded minutes are
+    // weak but not wrong; the date fields need more than three of them under
+    // high-latitude fading (live 10 MHz, Palmer AK, 2026-11-05).
+    static constexpr int kMaxJointFrames = 5;
     // Newest frame (b59) that the current time was first established from.
     // Verification needs a later decode that uses none of those frames.
     double timeBasisEnd = -1e18;
@@ -451,7 +457,7 @@ struct WwvDecoder::Impl {
                 badPhase = 0;
                 phase = bp;
                 eAvg = 0; eInit = false; edgeCount = 0;
-                if (href <= 0 || jump) href = hi - lo;
+                if (href <= 0 || jump) { href = hi - lo; hrefHist.clear(); }
                 if (jump) { P = 0; pUpdates = 0; }
                 phaseHist.clear();
                 if (!scheduling) {
@@ -585,7 +591,23 @@ struct WwvDecoder::Impl {
         for (int h = 0; h < 4; h++) if (h != best && (second < 0 || cost[h] < cost[second])) second = h;
         double conf = std::clamp(cost[second] - cost[best], 0.0, 1.0);
 
-        if (best != 0 && conf > 0.3 && A > 0) href = 0.8 * href + 0.2 * A;
+        // Pulse reference: the median of the last kHrefPulses confident pulses.
+        // Deep fades make a few seconds read far above normal (the level is
+        // divided by a carrier that has faded more than the sidebands). An
+        // exponential average followed those up, and ordinary full-strength
+        // pulses then read about 0.4 of the reference and were taken as "no
+        // pulse" (live 10 MHz, Palmer AK, 2026-11-05). A median ignores them.
+        if (best != 0 && conf > 0.3 && A > 0) {
+            hrefHist.push_back(A);
+            while (hrefHist.size() > kHrefPulses) hrefHist.pop_front();
+            if (hrefHist.size() >= 5) {
+                std::vector<double> v(hrefHist.begin(), hrefHist.end());
+                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+                href = v[v.size() / 2];
+            } else {
+                href = 0.8 * href + 0.2 * A;
+            }
+        }
         if (!offInit) { offVar = var; offInit = true; } else offVar = 0.9 * offVar + 0.1 * var;
 
         // Fine timing from this second's leading edge.
@@ -829,7 +851,13 @@ struct WwvDecoder::Impl {
                     st.lastProblem += " (fits expected time)";
                 }
             }
-            if (!consistent) {
+            // A frame whose structure holds but whose fields are too weak to
+            // read is still evidence that the frame alignment is right: keep
+            // the lock, so the next minutes can be read together with it.
+            // Without a time to compare against, only a broken structure
+            // counts as a failure.
+            bool alignedButWeak = !havePred && r.structureErrors <= 3;
+            if (!consistent && !alignedButWeak) {
                 frameFailures++;
                 if (frameFailures >= (haveTime ? 3 : 2)) frameLocked = false;
             }

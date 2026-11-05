@@ -184,6 +184,13 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
         else { allowed[1] = true; allowed[2] = true; } // data or unused bit
         double bestAllowed = 1e300, bestForbidden = 1e300;
         for (int h = 0; h < 4; h++) {
+            // A pulse lost in a fade reads as "no pulse". That is missing data
+            // (an erasure), not evidence against the frame structure: only a
+            // pulse of the wrong kind counts here (a marker in a data second,
+            // data in a marker second, any pulse in second 0). Live 10 MHz,
+            // Palmer AK, 2026-11-05: up to 7 faded seconds a minute vetoed
+            // frames whose fields were readable.
+            if (p != 0 && h == 0) continue;
             if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
             else bestForbidden = std::min(bestForbidden, c[p][h]);
         }
@@ -262,6 +269,7 @@ int structureErrorsOf(const SoftFrame& c)
         else { allowed[1] = true; allowed[2] = true; }
         double bestAllowed = 1e300, bestForbidden = 1e300;
         for (int h = 0; h < 4; h++) {
+            if (p != 0 && h == 0) continue; // faded second: an erasure (see decodeFrameSoft)
             if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
             else bestForbidden = std::min(bestForbidden, c[p][h]);
         }

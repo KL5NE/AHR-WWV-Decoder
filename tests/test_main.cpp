@@ -179,6 +179,45 @@ static void testSoft()
     CHECK(falseOk == 0, "%d/500 noise frames decoded", falseOk);
 }
 
+// A faded second reads as "no pulse": an erasure, not a broken frame. Seven
+// faded data seconds (live 10 MHz, Palmer AK, 2026-11-05) must not veto a
+// frame; seven pulses of the wrong kind still must.
+static void testFadedSecondsAreErasures()
+{
+    std::printf("[timecode] faded seconds are erasures, wrong-kind pulses are not\n");
+    TimeCode tc; tc.year = 2026; tc.dayOfYear = 309; tc.hour = 0; tc.minute = 19; tc.dut1Tenths = -1;
+    Frame f = encodeFrame(tc);
+    const double ex[4][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {1, 1, 1}};
+    auto costOf = [&](const double lv[3], std::array<double, 4>& c) {
+        for (int h = 0; h < 4; h++) {
+            c[h] = 0;
+            for (int i = 0; i < 3; i++) c[h] += (lv[i] - ex[h][i]) * (lv[i] - ex[h][i]);
+        }
+    };
+    // Unused (always-zero) data seconds, so the fields stay readable.
+    const int faded[7] = {1, 8, 14, 18, 24, 28, 34};
+    SoftFrame fade, wrong;
+    for (int p = 0; p < 60; p++) {
+        double lv[3] = {ex[int(f[p])][0], ex[int(f[p])][1], ex[int(f[p])][2]};
+        costOf(lv, fade[p]);
+        costOf(lv, wrong[p]);
+    }
+    for (int p : faded) {
+        double gone[3] = {0, 0, 0};       // pulse lost in a fade
+        costOf(gone, fade[p]);
+        double marker[3] = {1, 1, 1};     // a marker where a data bit belongs
+        costOf(marker, wrong[p]);
+    }
+    DecodeResult a = decodeFrameSoft(fade);
+    CHECK(a.structureErrors == 0, "faded seconds counted as %d structure errors", a.structureErrors);
+    CHECK(a.valid && a.tc.minute == 19 && a.tc.dayOfYear == 309, "faded-seconds frame rejected (%s)",
+          a.problems.empty() ? "" : a.problems[0].c_str());
+    DecodeResult b = decodeFrameSoft(wrong);
+    CHECK(b.structureErrors == 7 && !b.valid, "wrong-kind pulses: %d structure errors, valid %d", b.structureErrors, b.valid);
+    DecodeResult j = decodeFramesSoft({fade, fade});
+    CHECK(j.structureErrors == 0, "joint decode counted faded seconds (%d)", j.structureErrors);
+}
+
 // Joint decode of consecutive minutes: a fade that wipes a different field in
 // each minute must still give the right time, across hour, midnight and new
 // year carries, and noise must never decode.
@@ -487,6 +526,28 @@ static void testMultipathAndVoice()
     }
 }
 
+// High-latitude flutter: two skywave paths 4 ms apart, each fading fully and
+// fast (0.6 and 0.8 Hz), as on the live 10 MHz captures in Palmer AK on
+// 2026-11-05. Seeds 103 and 104 never verified before the median pulse
+// reference, erasure-aware structure check and five-minute joint read.
+static void testHighLatitudeFlutter()
+{
+    std::printf("[decoder] high-latitude flutter: two paths, fast deep fading\n");
+    for (int sd : {101, 103, 104}) {
+        SimConfig sc = baseSim(kNov2 + 3600 * (sd - 100) + 17 * 60 + 9.0);
+        sc.snrDb = 15; sc.seed = unsigned(sd);
+        sc.st[0].fadeDepth = 1.0; sc.st[0].fadeRateHz = 0.6;
+        sc.st[1].enabled = true; sc.st[1].tickHz = 1000.0; sc.st[1].delay = sc.st[0].delay + 0.004;
+        sc.st[1].amplitude = 1.0; sc.st[1].fadeDepth = 1.0; sc.st[1].fadeRateHz = 0.8; sc.st[1].carrierPhase = 2.0;
+        RunResult r = runScenario(sc, 660);
+        char name[48];
+        std::snprintf(name, sizeof name, "flutter 0.6/0.8 Hz, 4 ms, seed %d", sd);
+        report(name, r);
+        CHECK(r.final.state == DecoderState::Verified, "seed %d: %s", sd, decoderStateName(r.final.state));
+        CHECK(r.wrongSeconds == 0, "seed %d: %d wrong seconds", sd, r.wrongSeconds);
+    }
+}
+
 static void testDropoutHoldover()
 {
     std::printf("[decoder] 3-minute signal loss after lock: holdover and recovery\n");
@@ -613,6 +674,7 @@ int main(int argc, char** argv)
     testRoundTrip();
     testRejects();
     testSoft();
+    testFadedSecondsAreErasures();
     testJoint();
     testCalendar();
     testSkywave();
@@ -627,6 +689,7 @@ int main(int argc, char** argv)
         testNoiseSweep();
         testFadingAndWwvh();
         testMultipathAndVoice();
+        testHighLatitudeFlutter();
         testDropoutHoldover();
         testNoFalseLock();
         testFlagsAndRollover();
