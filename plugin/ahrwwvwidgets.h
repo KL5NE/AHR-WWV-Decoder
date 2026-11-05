@@ -36,7 +36,10 @@ class AHRWWVTimeCodeStrip : public QWidget
 public:
     explicit AHRWWVTimeCodeStrip(QWidget *parent = nullptr);
 
-    void setFrame(const std::array<ahrwwv::SecondSymbol, 60>& frame, int currentPosition);
+    void setFrame(const std::array<ahrwwv::SecondSymbol, 60>& frame, int currentPosition,
+                  ahrwwv::StationId station = ahrwwv::StationId::Unknown,
+                  const ahrwwv::TimeCode *decoded = nullptr);
+    QString tooltipTextAt(const QPoint& p) const; // testable hover text
     void clear();
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -51,10 +54,13 @@ private:
     std::array<ahrwwv::SecondSymbol, 60> m_frame;
     std::array<bool, 60> m_have;
     int m_current;
+    ahrwwv::StationId m_station = ahrwwv::StationId::Unknown;
+    bool m_haveDecoded = false;
+    ahrwwv::TimeCode m_decoded{};
 
     QRect cellRect(int second) const;
     int cellAt(const QPoint& p) const;
-    static QColor fieldColor(int second);
+    QColor fieldColor(int second) const;
 };
 
 //! Scrolling plot of the recovered 100 Hz subcarrier level (pulse ~1.0,
