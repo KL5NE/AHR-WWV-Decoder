@@ -184,6 +184,7 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
         else { allowed[1] = true; allowed[2] = true; } // data or unused bit
         double bestAllowed = 1e300, bestForbidden = 1e300;
         for (int h = 0; h < 4; h++) {
+            if (p != 0 && h == 0) continue; // faded missing pulse = erasure
             if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
             else bestForbidden = std::min(bestForbidden, c[p][h]);
         }
@@ -262,6 +263,7 @@ int structureErrorsOf(const SoftFrame& c)
         else { allowed[1] = true; allowed[2] = true; }
         double bestAllowed = 1e300, bestForbidden = 1e300;
         for (int h = 0; h < 4; h++) {
+            if (p != 0 && h == 0) continue; // erasure, not structure error
             if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
             else bestForbidden = std::min(bestForbidden, c[p][h]);
         }
