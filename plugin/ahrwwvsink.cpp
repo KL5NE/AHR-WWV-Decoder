@@ -283,7 +283,12 @@ void AHRWWVSink::runDecoder()
         AHRWWVReport& r = m_pending;
         r.status = m_decoder->status();
         double utc;
-        r.haveUtc = m_decoder->currentUtc(utc);
+        // No provisional UTC reaches the GUI clock or PC-clock comparison.
+        // Only VERIFIED and subsequent verified HOLDOVER are trusted.
+        bool trusted = r.status.state == ahrwwv::DecoderState::Verified
+            || (r.status.state == ahrwwv::DecoderState::Holdover
+                && r.status.verifiedFrames >= 2);
+        r.haveUtc = trusted && m_decoder->currentUtc(utc);
         r.utcAtRef = r.haveUtc ? utc : 0.0;
         r.pcAtRef = pcAtEnd;
         r.detectorDelay = m_decoder->detectorDelay();
