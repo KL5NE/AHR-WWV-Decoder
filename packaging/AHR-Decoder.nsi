@@ -39,7 +39,7 @@ ShowUnInstDetails show
 Function .onInit
   SetRegView 64
   ${IfNot} ${RunningX64}
-    MessageBox MB_ICONSTOP "AHR-Decoder requires Windows x64."
+    MessageBox MB_ICONSTOP "AHR-Decoder requires Windows x64." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -56,7 +56,7 @@ Section "AHR-Decoder plugin" SecPlugin
   Pop $1
   StrCmp $0 "0" safe
   DetailPrint "$1"
-  MessageBox MB_ICONSTOP "AHR-Decoder did not install. SDRangel may be open, unsupported, or contain an unrecognized plugin. Details: $1"
+  MessageBox MB_ICONSTOP "AHR-Decoder did not install. SDRangel may be open, unsupported, or contain an unrecognized plugin. Details: $1" /SD IDOK
   Abort
 safe:
   CreateDirectory "$PROGRAMFILES64\AHR-Decoder"
@@ -80,7 +80,7 @@ Function un.onInit
   SetRegView 64
   ReadRegStr $INSTDIR HKLM "${KEY}" "HostDir"
   StrCmp $INSTDIR "" 0 +3
-    MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked."
+    MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
     Abort
 FunctionEnd
 
@@ -90,7 +90,7 @@ Section "Uninstall"
   Pop $1
   StrCmp $0 "0" unSafe
   DetailPrint "$1"
-  MessageBox MB_ICONSTOP "Uninstall blocked to protect an unrecognized or modified DLL. Details: $1"
+  MessageBox MB_ICONSTOP "Uninstall blocked to protect an unrecognized or modified DLL. Details: $1" /SD IDOK
   Abort
 unSafe:
   DeleteRegKey HKLM "${KEY}"
