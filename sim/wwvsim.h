@@ -34,6 +34,13 @@ struct SimConfig {
     double snrDb = 40.0;         // carrier / noise in 3 kHz
     SimStation st[2];            // [0]=WWV, [1]=WWVH (disabled by default)
     std::vector<std::pair<double, double>> dropouts; // (start,end) seconds from start: signal off
+    // Impulsive interference (static crashes, local switching noise): Poisson
+    // bursts of broadband noise, impulseLen seconds long (uniform 0.3..1x), at
+    // impulseAmp times the WWV carrier amplitude. Live high-latitude captures
+    // show isolated seconds whose levels read 2-3x a normal pulse.
+    double impulseRate = 0.0;    // bursts per second
+    double impulseAmp = 3.0;
+    double impulseLen = 0.25;
     // time code flags
     int dut1Tenths = 0;
     bool lsw = false, dst1 = false, dst2 = false;
@@ -62,6 +69,8 @@ private:
     double m_v1[2] = {0, 0}, m_v2[2] = {0, 0};
     int64_t m_cacheMinute[2] = {INT64_MIN, INT64_MIN};
     Frame m_cacheFrame[2];
+    uint64_t m_burstEnd = 0;
+    std::uniform_real_distribution<double> m_uni{0.0, 1.0};
 };
 
 } // namespace ahrwwv

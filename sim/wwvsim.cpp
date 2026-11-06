@@ -109,6 +109,14 @@ void WwvSim::generate(std::vector<std::complex<float>>& out, size_t n)
             }
         }
         z += std::complex<double>(m_noiseStd * m_norm(m_rng), m_noiseStd * m_norm(m_rng));
+        if (m_c.impulseRate > 0) {
+            if (m_n >= m_burstEnd && m_uni(m_rng) < m_c.impulseRate / m_c.sampleRate)
+                m_burstEnd = m_n + uint64_t(m_c.sampleRate * m_c.impulseLen * (0.3 + 0.7 * m_uni(m_rng)));
+            if (m_n < m_burstEnd) {
+                double a = m_c.impulseAmp * m_c.st[0].amplitude / std::sqrt(2.0);
+                z += std::complex<double>(a * m_norm(m_rng), a * m_norm(m_rng));
+            }
+        }
         out[i] = std::complex<float>(float(z.real()), float(z.imag()));
     }
 }
