@@ -339,7 +339,9 @@ struct WwvDecoder::Impl {
     uint64_t timeBasisLastFrameId = 0;
     uint64_t confirmationPreviousLastFrameId = 0;
     uint64_t confirmationCurrentFirstFrameId = 0;
-    // Five consecutive frames allow high-latitude fading diversity.
+    // Up to five consecutive minutes are read together. Faded minutes are
+    // weak but not wrong; the date fields need more than three of them under
+    // high-latitude fading (live 10 MHz, Palmer AK, 2026-11-05).
     static constexpr int kMaxJointFrames = 5;
     // Verification needs later raw minutes that share no evidence with the
     // previous basis, even when both decodes use overlapping joint windows.
