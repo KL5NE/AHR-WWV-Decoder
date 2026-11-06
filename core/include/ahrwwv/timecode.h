@@ -60,7 +60,8 @@ using SoftFrame = std::array<std::array<double, 4>, 60>;
 
 // Maximum-likelihood decode: each field is chosen among its legal values only
 // (minute 0-59, hour 0-23, day 1-365/366, ...). The frame is valid when the
-// marker/second-0/unused-bit structure holds (<= 3 bad seconds) and every
+// marker/second-0/unused-bit structure holds (<= 3 wrong-kind pulses;
+// a faded missing pulse is treated as an erasure) and every
 // field beats its runner-up by at least minFieldMargin.
 DecodeResult decodeFrameSoft(const SoftFrame& cost, double minFieldMargin = 0.25);
 

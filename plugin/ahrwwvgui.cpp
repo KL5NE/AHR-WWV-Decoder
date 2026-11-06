@@ -180,7 +180,9 @@ void AHRWWVGUI::handleReport(const AHRWWVReport& report)
     }
 
     if (report.status.framePosition >= 0 && (report.status.state != DecoderState::Searching)) {
-        ui->timeCodeStrip->setFrame(report.status.frame, report.status.framePosition);
+        ui->timeCodeStrip->setFrame(report.status.frame, report.status.framePosition,
+                                    report.status.station,
+                                    report.status.haveTime ? &report.status.lastTimeCode : nullptr);
     } else if (report.status.state == DecoderState::Searching || report.status.state == DecoderState::SecondLock) {
         ui->timeCodeStrip->clear();
     }
@@ -413,7 +415,10 @@ void AHRWWVGUI::updateStatusPanels()
     // Signal
     double snr = st.subcarrierSnrDb;
     bool locked = st.state != DecoderState::Searching;
-    ui->snrBar->setValue(locked ? (int) std::max(0.0, std::min(100.0, snr / 30.0 * 100.0)) : 0);
+    // The 100 Hz reference bar uses the observed 0–45 dB range.
+    ui->snrBar->setValue(locked ? (int) std::max(0.0, std::min(100.0, snr / 45.0 * 100.0)) : 0);
+    const char *snrColor = snr < 6.0 ? "#c43c3c" : (snr < 15.0 ? "#dfb638" : "#399b56");
+    ui->snrBar->setStyleSheet(QString("QProgressBar::chunk { background-color: %1; }").arg(snrColor));
     ui->snrValue->setText(locked ? QString("%1 dB").arg(snr, 0, 'f', 1) : "-");
     ui->lockBar->setValue((int) (st.secondLockQuality * 100.0));
     ui->lockValue->setText(QString::number(st.secondLockQuality, 'f', 2));

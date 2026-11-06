@@ -19,6 +19,7 @@
 #include <QPainter>
 #include <QHelpEvent>
 #include <QToolTip>
+#include <QDate>
 
 #include "ahrwwvwidgets.h"
 
@@ -32,15 +33,20 @@ AHRWWVTimeCodeStrip::AHRWWVTimeCodeStrip(QWidget *parent) :
 {
     m_have.fill(false);
     setMouseTracking(true);
+    setToolTip(QStringLiteral("WWV/WWVH time code: hover a second or row label for details"));
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 }
 
 QSize AHRWWVTimeCodeStrip::sizeHint() const { return QSize(360, 6 * 20 + 4); }
 QSize AHRWWVTimeCodeStrip::minimumSizeHint() const { return QSize(260, 6 * 16 + 4); }
 
-void AHRWWVTimeCodeStrip::setFrame(const std::array<ahrwwv::SecondSymbol, 60>& frame, int currentPosition)
+void AHRWWVTimeCodeStrip::setFrame(const std::array<ahrwwv::SecondSymbol, 60>& frame, int currentPosition,
+                                      ahrwwv::StationId station, const ahrwwv::TimeCode *decoded)
 {
     m_frame = frame;
+    m_station = station;
+    m_haveDecoded = decoded != nullptr;
+    if (decoded) m_decoded = *decoded;
 
     for (int i = 0; i < 60; i++) {
         // DecoderStatus::frame entries that have not been filled this minute keep framePosition == -1
@@ -55,6 +61,8 @@ void AHRWWVTimeCodeStrip::clear()
 {
     m_have.fill(false);
     m_current = -1;
+    m_haveDecoded = false;
+    m_station = ahrwwv::StationId::Unknown;
     update();
 }
 
@@ -70,17 +78,22 @@ QRect AHRWWVTimeCodeStrip::cellRect(int second) const
 
 int AHRWWVTimeCodeStrip::cellAt(const QPoint& p) const
 {
-    for (int s = 0; s < 60; s++) {
-        if (cellRect(s).contains(p)) {
-            return s;
-        }
-    }
-
-    return -1;
+    // Treat the small painted gaps as part of the nearest cell, so a
+    // one-second repaint or a one-pixel pointer move does not cancel hover.
+    const int labelW = 22;
+    if (p.x() < labelW || p.x() >= width() || p.y() < 1 || p.y() >= height() - 1) return -1;
+    const int colW = (width() - labelW - 2) / 10;
+    const int rowH = (height() - 2) / 6;
+    if (colW <= 0 || rowH <= 0) return -1;
+    const int col = (p.x() - labelW) / colW;
+    const int row = (p.y() - 1) / rowH;
+    if (row < 0 || row >= 6 || col < 0 || col >= 10) return -1;
+    return row * 10 + col;
 }
 
-QColor AHRWWVTimeCodeStrip::fieldColor(int s)
+QColor AHRWWVTimeCodeStrip::fieldColor(int s) const
 {
+    if (s == 47 && m_station == ahrwwv::StationId::WWVH) return QColor(25, 115, 165); // WWVH identification bit
     if (s == 0) return QColor(70, 70, 70);                       // frame reference
     if (s % 10 == 9) return QColor(110, 60, 150);               // position markers
     if (s >= 4 && s <= 7) return QColor(40, 90, 140);           // year units
@@ -114,7 +127,56 @@ QString AHRWWVTimeCodeStrip::describeSecond(int s)
     if (s >= 51 && s <= 54) return QString("Year tens, weight %1").arg(QList<int>({10, 20, 40, 80}).at(s - 51));
     if (s == 55) return "DST1 (DST in effect at 00:00 UTC today)";
     if (s >= 56 && s <= 58) return QString("DUT1 magnitude, weight %1 x 0.1 s").arg(QList<int>({1, 2, 4}).at(s - 56));
+    if (s == 47) return "WWVH station identification: fixed 1 on WWVH, otherwise unused";
     return "Unused (always 0)";
+}
+
+QString AHRWWVTimeCodeStrip::tooltipTextAt(const QPoint& p) const
+{
+    // Row labels are not second cells, but should still explain the ten-second group.
+    if (p.x() >= 0 && p.x() < 22 && p.y() >= 1 && p.y() < height() - 1) {
+        const int rowH = (height() - 2) / 6;
+        if (rowH > 0) {
+            const int row = (p.y() - 1) / rowH;
+            if (row >= 0 && row < 6)
+                return QString("Seconds %1–%2\nEach row shows ten seconds of the 60-second WWV/WWVH time code.")
+                    .arg(row * 10, 2, 10, QChar('0')).arg(row * 10 + 9, 2, 10, QChar('0'));
+        }
+    }
+    int sec = cellAt(p);
+    if (sec < 0) return {};
+    QString desc = describeSecond(sec);
+    QString explanation;
+    QString decoded;
+    if (sec == 0) explanation = "No pulse marks the start of the minute; the marker at :59 completes the frame.";
+    else if (sec % 10 == 9) explanation = "An approximately 800 ms position pulse; a frame fencepost, not a data bit.";
+    else if (sec == 47) explanation = m_station == ahrwwv::StationId::WWVH
+        ? "WWVH transmits a fixed 1 here to identify the station."
+        : "WWVH uses a fixed 1 here; WWV normally has an unused 0.";
+    else if (sec == 2) explanation = "DST status at 24:00 UTC today.";
+    else if (sec == 55) explanation = "DST status at 00:00 UTC today.";
+    else if (sec == 3) explanation = "Announces a possible leap-second adjustment.";
+    else if (sec == 50 || (sec >= 56 && sec <= 58)) explanation = "DUT1 adjusts UTC toward Earth-rotation time (UT1) in tenths of a second.";
+    else if (desc.startsWith("Unused")) explanation = "Reserved code position; normally transmitted as 0.";
+    else explanation = "This bit contributes its stated weight to the UTC field.";
+    if (m_haveDecoded) {
+        if ((sec >= 10 && sec <= 17)) decoded = QString("This minute: %1").arg(m_decoded.minute, 2, 10, QChar('0'));
+        else if (sec >= 20 && sec <= 26) decoded = QString("This hour: %1 UTC").arg(m_decoded.hour, 2, 10, QChar('0'));
+        else if (sec >= 30 && sec <= 41) decoded = QString("Day %1 = %2").arg(m_decoded.dayOfYear)
+            .arg(QDate(m_decoded.year, 1, 1).addDays(m_decoded.dayOfYear - 1).toString("d MMM"));
+        else if ((sec >= 4 && sec <= 7) || (sec >= 51 && sec <= 54)) decoded = QString("Decoded year: %1").arg(m_decoded.year);
+        else if (sec == 50 || (sec >= 56 && sec <= 58)) decoded = QString("DUT1 this minute: %1 s").arg(m_decoded.dut1Tenths / 10.0, 0, 'f', 1);
+        else if (sec == 3) decoded = QString("Leap-second warning: %1").arg(m_decoded.leapSecondWarning ? "Yes" : "No");
+        else if (sec == 2) decoded = QString("DST2: %1").arg(m_decoded.dst2 ? "Yes" : "No");
+        else if (sec == 55) decoded = QString("DST1: %1").arg(m_decoded.dst1 ? "Yes" : "No");
+    }
+    QString txt = QString("Second %1: %2\n%3\n%4").arg(sec).arg(desc).arg(explanation)
+        .arg(decoded.isEmpty() ? "Decoded value: not yet available" : decoded);
+    if (m_have[sec]) {
+        txt += QString("\nReceived '%1', confidence %2").arg(QChar(ahrwwv::symbolChar(m_frame[sec].symbol)))
+            .arg(m_frame[sec].confidence, 0, 'f', 2);
+    }
+    return txt;
 }
 
 bool AHRWWVTimeCodeStrip::event(QEvent *e)
@@ -122,27 +184,15 @@ bool AHRWWVTimeCodeStrip::event(QEvent *e)
     if (e->type() == QEvent::ToolTip)
     {
         QHelpEvent *he = static_cast<QHelpEvent*>(e);
-        int s = cellAt(he->pos());
-
-        if (s >= 0)
-        {
-            QString txt = QString("Second %1: %2").arg(s).arg(describeSecond(s));
-
-            if (m_have[s]) {
-                txt += QString("\nReceived '%1', confidence %2").arg(QChar(ahrwwv::symbolChar(m_frame[s].symbol)))
-                    .arg(m_frame[s].confidence, 0, 'f', 2);
-            }
-
+        const QString txt = tooltipTextAt(he->pos());
+        if (!txt.isEmpty()) {
+            // Do not call hideText() for cell gaps or label area: it cancels the tooltip.
             QToolTip::showText(he->globalPos(), txt, this);
+            return true;
         }
-        else
-        {
-            QToolTip::hideText();
-        }
-
-        return true;
+        // Let QWidget show its ordinary fallback tooltip when appropriate.
+        return QWidget::event(e);
     }
-
     return QWidget::event(e);
 }
 
