@@ -268,6 +268,14 @@ constexpr double kMaxPulseGain = 1.5;
 constexpr size_t kHrefPulses = 31;
 constexpr double kMinSymbolConf = 0.15;  // below this a second is shown as "?"
 constexpr double kEdgeAlpha = 0.05;      // fine timing loop gain (~40 s averaging)
+// Frame margins are log-likelihood ratios in nats (calibrateSoftFrame).
+// A first decode needs this much before it can stand as the time basis on
+// its own; weaker valid decodes are kept only as candidates for confirmation.
+// One second can count for at most -ln(kOutlierProb) = 4.6 nats, so a
+// single-bit field (leap second, DST) from one minute reaches this only when
+// its second is unambiguous.
+constexpr double kStrongDecodeNats = 4.5;
+constexpr double kConfidenceFullNats = 8.0; // margin shown as confidence 1.00
 
 } // namespace
 
@@ -787,7 +795,7 @@ struct WwvDecoder::Impl {
             DecodeResult rj = decodeFramesSoft(fs);
             if (rj.valid) { r = rj; firstId = ids.front(); }
         }
-        st.frameConfidence = std::clamp(r.minMargin, 0.0, 1.0);
+        st.frameConfidence = std::clamp(r.minMargin / kConfidenceFullNats, 0.0, 1.0);
         st.lastFrame = syms;
 
         double predMinute = 0;
@@ -820,7 +828,7 @@ struct WwvDecoder::Impl {
                     break;
                 }
             while (!candidates.empty() && b59 - candidates.front().b59 > 900.0) candidates.pop_front();
-            if (r.minMargin >= 0.5) candidates.push_back(Candidate{M, b59, firstId, lastId});
+            if (r.minMargin >= kStrongDecodeNats) candidates.push_back(Candidate{M, b59, firstId, lastId});
 
             if (agree) {
                 if (timeBasisLastFrameId && timeBasisLastFrameId < firstId) {
@@ -855,7 +863,7 @@ struct WwvDecoder::Impl {
                 timeBasisLastFrameId = 0;
                 offAvgInit = false;
                 st.lastProblem = "frame disagrees with unverified time; waiting for confirmation";
-            } else if (r.minMargin < 0.5) {
+            } else if (r.minMargin < kStrongDecodeNats) {
                 accept = false; // weak first decode: keep as candidate only
                 st.lastProblem = "weak decode; waiting for confirmation";
             } else {
