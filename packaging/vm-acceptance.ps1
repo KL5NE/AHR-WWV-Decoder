@@ -24,7 +24,15 @@ try {
     $x = Start-Process -FilePath $setup[0].FullName -ArgumentList "/S /D=$hostFolder" -Wait -PassThru
     return $x.ExitCode
   }
-  Demand ((RunSetup) -eq 0) 'AHR-Decoder silent clean setup failed'
+  $cleanExit = RunSetup
+  if ($cleanExit -ne 0) {
+    $installerLog = Join-Path $env:ProgramData 'AHR-Decoder\installer.log'
+    $diagnostic = if (Test-Path -LiteralPath $installerLog) {
+      (Get-Content -LiteralPath $installerLog -Tail 12) -join ' | '
+    } else { 'installer.log absent (NSIS may have failed before invoking install-plugin.ps1)' }
+    Note 'Silent clean install diagnostic' 'FAIL' "exit=$cleanExit; $diagnostic"
+    Demand $false "AHR-Decoder silent clean setup failed (exit=$cleanExit): $diagnostic"
+  }
   Demand (Test-Path $dll) 'AHR plugin DLL missing after setup'
   Demand ((Sha $dll) -eq $expected) 'Installed DLL checksum mismatch'
   Demand (Test-Path $state) 'Installer ownership state missing'
