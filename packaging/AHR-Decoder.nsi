@@ -14,7 +14,9 @@ Unicode true
   !error "Pass /DBUILDCOMMIT=... to makensis"
 !endif
 !define PRODUCT "AHR-Decoder"
-!define APPVERSION "0.9.0-beta"
+!ifndef APPVERSION
+  !error "Pass /DAPPVERSION=... from packaging/VERSION.txt"
+!endif
 !define KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\AHR-Decoder"
 Name "AHR-Decoder ${APPVERSION} — WWV/WWVH time decoder for SDRangel 8.0.0"
 OutFile "${OUTPUT}"
