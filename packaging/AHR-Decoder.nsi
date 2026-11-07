@@ -116,7 +116,7 @@ unSafe:
     DetailPrint "Uninstall blocked: decoder DLL still exists after helper returned success."
     SetErrorLevel 1
     Abort
-  IfFileExists "$PROGRAMDATA\AHR-Decoder\installed.json" 0 +4
+  IfFileExists "$COMMONAPPDATA\AHR-Decoder\installed.json" 0 +4
     DetailPrint "Uninstall blocked: ownership record still exists after helper returned success."
     SetErrorLevel 1
     Abort
