@@ -150,7 +150,17 @@ unSafe:
   DeleteRegKey HKLM "${KEY}"
   Delete "$PROGRAMFILES64\AHR-Decoder\install-plugin.ps1"
   Delete "$PROGRAMFILES64\AHR-Decoder\LICENSE"
+  ; NSIS in-place (_?=) mode runs directly from the installed executable.
+  ; Do not delete the running EXE in that mode; the VM harness cleans it up
+  ; after verifying plugin and ownership removal. Normal copied mode retains
+  ; the original self-removal behavior.
+  StrCmp $EXEPATH "$PROGRAMFILES64\AHR-Decoder\Uninstall.exe" unInPlace unCopied
+unCopied:
   Delete "$PROGRAMFILES64\AHR-Decoder\Uninstall.exe"
   RMDir "$PROGRAMFILES64\AHR-Decoder"
+  Goto unCleanupDone
+unInPlace:
+  DetailPrint "In-place uninstall: executable cleanup delegated to caller."
+unCleanupDone:
   DetailPrint "Removed only the AHR-owned decoder DLL. SDRangel remains unchanged."
 SectionEnd
