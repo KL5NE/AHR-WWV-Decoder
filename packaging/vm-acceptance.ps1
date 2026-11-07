@@ -86,3 +86,7 @@ try {
   if (Test-Path -LiteralPath $nsisTrace) { Add-Content -Path output/VM-ACCEPTANCE.txt -Value '--- NSIS trace ---'; Get-Content -LiteralPath $nsisTrace | Add-Content -Path output/VM-ACCEPTANCE.txt }
   $report | ForEach-Object { Write-Host $_ }
 }
+
+# The installer negative tests intentionally return nonzero from native executables.
+# Those values must not leak through PowerShell's LASTEXITCODE after every assertion passed.
+exit 0
