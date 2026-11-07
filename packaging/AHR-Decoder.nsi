@@ -110,6 +110,16 @@ Section "Uninstall"
   SetErrorLevel 1
   Abort
 unSafe:
+  ; A successful helper exit is not sufficient: verify both removal postconditions
+  ; before deleting registration or the uninstaller itself.
+  IfFileExists "$INSTDIR\plugins\ahrwwvtimedecoder.dll" 0 +4
+    DetailPrint "Uninstall blocked: decoder DLL still exists after helper returned success."
+    SetErrorLevel 1
+    Abort
+  IfFileExists "$PROGRAMDATA\AHR-Decoder\installed.json" 0 +4
+    DetailPrint "Uninstall blocked: ownership record still exists after helper returned success."
+    SetErrorLevel 1
+    Abort
   DeleteRegKey HKLM "${KEY}"
   Delete "$PROGRAMFILES64\AHR-Decoder\install-plugin.ps1"
   Delete "$PROGRAMFILES64\AHR-Decoder\LICENSE"
