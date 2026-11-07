@@ -8,7 +8,8 @@ $setup = @(Get-ChildItem output -Filter '*-Setup.exe')
 Demand ($setup.Count -eq 1) 'Expected exactly one beta installer'
 $dll = Join-Path $hostFolder 'plugins\ahrwwvtimedecoder.dll'
 $state = Join-Path $env:ProgramData 'AHR-Decoder\installed.json'
-$uninstaller = Join-Path $env:ProgramFiles 'AHR-Decoder\Uninstall.exe'
+$installDir = Join-Path $env:ProgramFiles 'AHR-Decoder'
+$uninstaller = Join-Path $installDir 'Uninstall.exe'
 $expected = $env:DLL_HASH
 try {
   $official = (Resolve-Path 'sdrangel-8.0.0-win64.exe').Path
@@ -45,7 +46,7 @@ try {
   Note 'Recognized AHR upgrade' 'PASS'
   $upgraded = Get-Content $state -Raw | ConvertFrom-Json
   Demand ($upgraded.dllSha256 -eq $expected) 'Upgraded state ownership record mismatch'
-  $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+  $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/S', "_?=$installDir") -Wait -PassThru
   Demand ($uninstall.ExitCode -eq 0) 'Uninstall failed'
   if (Test-Path -LiteralPath $dll) {
     # Preserve the exact failure evidence before the assertion aborts the VM job.
@@ -60,6 +61,10 @@ try {
   }
   Demand (-not (Test-Path $dll)) 'Uninstaller left AHR DLL installed'
   Demand (-not (Test-Path $state)) 'Uninstaller left active ownership record'
+  # NSIS _?= runs in place to expose the real refusal exit code, so it cannot
+  # delete its own executable. Clean up only after removal postconditions pass.
+  Remove-Item -LiteralPath $uninstaller -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $installDir -Force -ErrorAction SilentlyContinue
   Note 'Uninstall owned DLL only' 'PASS'
   $remaining = @(Get-ChildItem (Join-Path $hostFolder 'plugins') -File | ForEach-Object { "$($_.Name) $(Sha $_.FullName)" })
   Demand ((Compare-Object $existing $remaining).Length -eq 0) 'Other SDRangel plugins changed'
@@ -109,7 +114,7 @@ try {
   Demand ((Sha $dll) -eq $expected) 'Reinstalled DLL hash mismatch before tamper test'
   [IO.File]::AppendAllText($dll, 'AHR-VM-TAMPER-TEST')
   $tamperedHash = Sha $dll
-  $tamperedUninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+  $tamperedUninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/S', "_?=$installDir") -Wait -PassThru
   if ($tamperedUninstall.ExitCode -eq 0) {
     # Capture refusal-path evidence before the assertion fails. Do not weaken the test.
     $unTracePath = Join-Path $env:TEMP 'AHR-Decoder-Uninstall-Trace.log'
