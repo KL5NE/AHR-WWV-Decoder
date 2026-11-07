@@ -54,7 +54,9 @@ try {
     $helperTail = if (Test-Path -LiteralPath $helperLog) { (Get-Content -LiteralPath $helperLog -Tail 12) -join ' | ' } else { 'absent' }
     $nsisTail = if (Test-Path -LiteralPath $nsisLog) { (Get-Content -LiteralPath $nsisLog -Tail 12) -join ' | ' } else { 'absent' }
     $statePresent = Test-Path -LiteralPath $state
-    Note 'Uninstall removal diagnostic' 'FAIL' "exit=$($uninstall.ExitCode); dllSha=$(Sha $dll); statePresent=$statePresent; helperLog=$helperTail; nsisTrace=$nsisTail"
+    $unTracePath = Join-Path $env:TEMP 'AHR-Decoder-Uninstall-Trace.log'
+    $unTrace = if (Test-Path -LiteralPath $unTracePath) { (Get-Content -LiteralPath $unTracePath -Tail 12) -join ' | ' } else { 'uninstall trace absent' }
+    Note 'Uninstall removal diagnostic' 'FAIL' "exit=$($uninstall.ExitCode); dllSha=$(Sha $dll); statePresent=$statePresent; helperLog=$helperTail; nsisTrace=$nsisTail; uninstallTrace=$unTrace"
   }
   Demand (-not (Test-Path $dll)) 'Uninstaller left AHR DLL installed'
   Demand (-not (Test-Path $state)) 'Uninstaller left active ownership record'
