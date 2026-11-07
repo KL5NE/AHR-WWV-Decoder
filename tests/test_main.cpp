@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // AHR WWV/WWVH Time Decoder - unit and scenario tests (no framework needed).
 #include "ahrwwv/decoder.h"
 #include "ahrwwv/timecode.h"
@@ -468,11 +470,43 @@ static void testAudioAndRates()
         RunResult r = runScenario(sc, 240);
         char nm[64]; std::snprintf(nm, sizeof nm, "IQ %.0f Hz, %+.0f ppm", c.fs, c.ppm);
         report(nm, r);
-        std::printf("    measured sample clock %+.1f ppm (valid %d)\n", r.final.sampleClockPpm, r.final.sampleClockPpmValid);
+        std::printf("    measured sample clock %+.1f ppm (valid %d); shown %+.2f +/- %.2f ppm (settled %d)\n",
+                    r.final.sampleClockPpm, r.final.sampleClockPpmValid, r.final.sampleClockPpmMeasured,
+                    r.final.sampleClockPpmSigma, r.final.sampleClockPpmSettled);
+        CHECK(std::fabs(r.final.sampleClockPpmMeasured - c.ppm) <= 3.0 * r.final.sampleClockPpmSigma + 0.2,
+              "shown ppm %+.2f +/- %.2f does not cover %+.0f", r.final.sampleClockPpmMeasured,
+              r.final.sampleClockPpmSigma, c.ppm);
         CHECK(r.final.state == DecoderState::Verified && r.wrongSeconds == 0, "rate case");
         CHECK(r.maxBoundaryErr < 0.0015, "boundary err %.4f", r.maxBoundaryErr);
         CHECK(r.final.sampleClockPpmValid && std::fabs(r.final.sampleClockPpm - c.ppm) < 5, "ppm %.1f", r.final.sampleClockPpm);
     }
+}
+
+// The displayed sample-clock error must carry an honest error bar: over
+// many independent runs with fading, the truth lies within 2 sigma about 95 %
+// of the time, and a 1 ppm clock settles to a number within ~10 minutes.
+static void testPpmErrorBar()
+{
+    std::printf("[decoder] sample-clock readout: error bar coverage under fading\n");
+    int runs = 0, settled = 0, covered2 = 0;
+    double sigSum = 0;
+    for (int k = 0; k < 12; k++) {
+        SimConfig sc = baseSim(kNov2 + 3600 * k + 17 * 60 + 9.0);
+        sc.snrDb = 15; sc.seed = unsigned(500 + k);
+        sc.ppm = (k % 2 ? 1.0 : -0.9);
+        sc.st[0].fadeDepth = 0.9; sc.st[0].fadeRateHz = 0.2;
+        RunResult r = runScenario(sc, 720);
+        runs++;
+        if (!r.final.sampleClockPpmValid) continue;
+        if (r.final.sampleClockPpmSettled) settled++;
+        double err = std::fabs(r.final.sampleClockPpmMeasured - sc.ppm);
+        if (err <= 2.0 * r.final.sampleClockPpmSigma) covered2++;
+        sigSum += r.final.sampleClockPpmSigma;
+    }
+    std::printf("  %d runs: settled %d, truth within 2 sigma %d, mean sigma %.2f ppm\n",
+                runs, settled, covered2, sigSum / std::max(1, runs));
+    CHECK(covered2 >= 10, "error bar too small: truth within 2 sigma in only %d of %d runs", covered2, runs);
+    CHECK(settled >= 9, "only %d of %d runs settled within 12 minutes", settled, runs);
 }
 
 static void testNoiseSweep()
@@ -671,6 +705,10 @@ static void testFlagsAndRollover()
         const TimeCode& t = r.final.lastTimeCode;
         CHECK(r.final.haveTime && t.dut1Tenths == -3 && t.leapSecondWarning && t.dst1 && !t.dst2, "flags dut1 %d lsw %d dst %d%d",
               t.dut1Tenths, t.leapSecondWarning, t.dst1, t.dst2);
+        CHECK(r.final.flagsConfirmed && r.final.confirmedDut1Tenths == -3 && r.final.confirmedLsw
+              && r.final.confirmedDst1 && !r.final.confirmedDst2, "confirmed flags %d dut1 %d lsw %d dst %d%d",
+              r.final.flagsConfirmed, r.final.confirmedDut1Tenths, r.final.confirmedLsw,
+              r.final.confirmedDst1, r.final.confirmedDst2);
     }
     {
         double start = double(daysFromCivil(2026, 12, 31)) * 86400 + 23 * 3600 + 57 * 60 + 20;
@@ -687,6 +725,44 @@ static void testFlagsAndRollover()
         RunResult r = runScenario(sc, 200);
         report("2028 day 366", r);
         CHECK(r.final.haveTime && r.final.lastTimeCode.dayOfYear == 366 && r.wrongSeconds == 0, "day 366");
+    }
+}
+
+// DUT1/LSW/DST are shown only when two decodes over disjoint raw minutes
+// agree. A one-minute misread must not reach the display; a real DUT1 step
+// must be adopted once confirmed.
+static void testStationFlagConfirmation()
+{
+    std::printf("[decoder] station flags: one-minute misread vs real DUT1 step\n");
+    const double start = kNov2 + 9 * 3600 + 20.0;
+    const int64_t m0 = int64_t(start) / 60 * 60;
+    {
+        SimConfig sc = baseSim(start);
+        sc.dut1Tenths = -1;
+        sc.dut1ByMinute = {{m0 + 6 * 60, 0}}; // one minute reads DUT1 +0.0
+        int shownWrong = 0, rawGlitch = 0;
+        RunResult r = runScenario(sc, 600, false, DecoderConfig(), false, 0.0,
+            [&](double, const DecoderStatus& s) {
+                if (s.flagsConfirmed && s.confirmedDut1Tenths != -1) shownWrong++;
+                if (s.haveTime && s.lastTimeCode.dut1Tenths == 0) rawGlitch++;
+            });
+        report("DUT1 -0.1, one minute misread 0.0", r);
+        CHECK(rawGlitch > 0, "glitch minute never decoded (test not exercising the case)");
+        CHECK(shownWrong == 0, "misread DUT1 shown as confirmed for %d s", shownWrong);
+        CHECK(r.final.flagsConfirmed && r.final.confirmedDut1Tenths == -1, "final DUT1 %d", r.final.confirmedDut1Tenths);
+    }
+    {
+        SimConfig sc = baseSim(start);
+        sc.dut1Tenths = -1;
+        for (int k = 6; k < 12; k++) sc.dut1ByMinute.push_back({m0 + k * 60, 2}); // real step to +0.2
+        int shownOther = 0;
+        RunResult r = runScenario(sc, 690, false, DecoderConfig(), false, 0.0,
+            [&](double, const DecoderStatus& s) {
+                if (s.flagsConfirmed && s.confirmedDut1Tenths != -1 && s.confirmedDut1Tenths != 2) shownOther++;
+            });
+        report("DUT1 step -0.1 -> +0.2", r);
+        CHECK(shownOther == 0, "a DUT1 never transmitted was shown for %d s", shownOther);
+        CHECK(r.final.flagsConfirmed && r.final.confirmedDut1Tenths == 2, "DUT1 step not adopted: %d", r.final.confirmedDut1Tenths);
     }
 }
 
@@ -791,6 +867,7 @@ int main(int argc, char** argv)
     testEnvelopeTap();
     testRawMinuteEvidenceSafety();
     testSoftCalibration();
+    testStationFlagConfirmation();
     testClean();
     if (!quick) {
         testAudioAndRates();
@@ -799,6 +876,7 @@ int main(int argc, char** argv)
         testMultipathAndVoice();
         testHighLatitudeFlutter();
         testFalseDecodedRegression();
+        testPpmErrorBar();
         testDropoutHoldover();
         testNoFalseLock();
         testFlagsAndRollover();

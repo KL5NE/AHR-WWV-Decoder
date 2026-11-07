@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // AHR WWV/WWVH Time Decoder - portable streaming decoder engine.
 //
 // Feed it complex baseband IQ (AM carrier near 0 Hz) or already
@@ -75,6 +77,12 @@ struct DecoderStatus {
     double timingJitter = 0.0;      // 1 sigma estimate of second-boundary jitter (s)
     double sampleClockPpm = 0.0;    // measured sample clock error vs. UTC
     bool sampleClockPpmValid = false;
+    // For display: the same measurement fitted robustly (jumped edges
+    // removed), with its 1-sigma error. Positive = the sample clock runs fast.
+    // Show the number only when Settled; otherwise "measuring".
+    double sampleClockPpmMeasured = 0.0;
+    double sampleClockPpmSigma = 0.0;
+    bool sampleClockPpmSettled = false;
     StationId station = StationId::Unknown;
     double tick1000 = 0.0, tick1200 = 0.0; // relative tick tone energies
     // Frame
@@ -84,6 +92,15 @@ struct DecoderStatus {
     // Time
     bool haveTime = false;           // a decoded (or holdover) time is available
     TimeCode lastTimeCode;           // most recent valid frame contents
+    // DUT1, leap-second warning and DST, as confirmed by two accepted decodes
+    // that share no raw minute. One faded second can flip one of these bits
+    // in a single decode (live 15 MHz, 2026-11-06: DUT1 shown +0.0 for one
+    // minute while the station sent -0.1), so displays should use these
+    // rather than lastTimeCode's copies. A change (DUT1 step, DST day, leap
+    // second warning) shows once two independent decodes report it.
+    bool flagsConfirmed = false;
+    int confirmedDut1Tenths = 0;
+    bool confirmedLsw = false, confirmedDst1 = false, confirmedDst2 = false;
     double frameConfidence = 0.0;    // 0..1 of most recent decode attempt
     int verifiedFrames = 0;          // independent agreeing frames
     // Raw minute IDs used for the most recent independent confirmation.

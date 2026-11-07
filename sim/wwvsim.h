@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // Synthetic WWV/WWVH signal generator for testing (not part of the plugin).
 #pragma once
 #include "ahrwwv/timecode.h"
@@ -43,6 +45,9 @@ struct SimConfig {
     double impulseLen = 0.25;
     // time code flags
     int dut1Tenths = 0;
+    // Optional DUT1 overrides by UTC minute (Unix seconds at :00): emulate a
+    // one-minute misread (one entry) or a real DUT1 step (entries onward).
+    std::vector<std::pair<int64_t, int>> dut1ByMinute;
     bool lsw = false, dst1 = false, dst2 = false;
     unsigned seed = 1;
 };

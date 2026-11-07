@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // wwv_decode_wav: run the decoder over a WAV recording and print what it sees.
 //   mono WAV   = AM-demodulated audio (e.g. SDRangel AM demod recording)
 //   stereo WAV = complex I/Q with the WWV carrier near 0 Hz
@@ -71,6 +73,9 @@ int main(int argc, char** argv)
     std::printf("final state %s | 100 Hz SNR %.1f dB | second lock quality %.2f | edge jitter %.2f ms | station %s (tick 1000 %.2f, 1200 %.2f)\n",
                 decoderStateName(s.state), s.subcarrierSnrDb, s.secondLockQuality, s.timingJitter * 1e3,
                 stationName(s.station), s.tick1000, s.tick1200);
+    if (s.sampleClockPpmValid)
+        std::printf("sample clock %+.2f +/- %.2f ppm (%s)\n", s.sampleClockPpmMeasured, s.sampleClockPpmSigma,
+                    s.sampleClockPpmSettled ? "settled" : "measuring");
     double u;
     if (dec.currentUtc(u))
         std::printf("UTC at end of file (transmitter time): %s  +/- %.1f ms\n", formatUnix(u).c_str(), s.timeUncertainty * 1e3);

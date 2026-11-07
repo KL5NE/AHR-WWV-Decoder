@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // Monte Carlo stress test: many random starts/seeds per condition.
 // Reports how often a time is obtained and whether any wrong second is ever labelled.
 #include "ahrwwv/decoder.h"
