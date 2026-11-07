@@ -39,7 +39,7 @@ ShowUnInstDetails show
 Function .onInit
   SetRegView 64
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" w
-  FileWrite $R9 "AHR-Decoder setup init (before version/preflight) $\\r$\\n"
+  FileWrite $R9 "AHR-Decoder setup init (before version/preflight) $\r$\n"
   FileClose $R9
   ${IfNot} ${RunningX64}
     MessageBox MB_ICONSTOP "AHR-Decoder requires Windows x64." /SD IDOK
@@ -49,25 +49,25 @@ FunctionEnd
 
 Section "AHR-Decoder plugin" SecPlugin
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" a
-  FileWrite $R9 "Entering install section: $INSTDIR $\\r$\\n"
+  FileWrite $R9 "Entering install section: $INSTDIR $\r$\n"
   FileClose $R9
   InitPluginsDir
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" a
-  FileWrite $R9 "Plugin temp initialized: $PLUGINSDIR $\\r$\\n"
+  FileWrite $R9 "Plugin temp initialized: $PLUGINSDIR $\r$\n"
   FileClose $R9
   SetOutPath "$PLUGINSDIR"
   File /oname=ahrwwvtimedecoder.dll "${STAGE}\ahrwwvtimedecoder.dll"
   File /oname=approved-host.txt "${STAGE}\approved-host.txt"
   File /oname=install-plugin.ps1 "${STAGE}\install-plugin.ps1"
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" a
-  FileWrite $R9 "Payload files extracted; invoking host compatibility check $\\r$\\n"
+  FileWrite $R9 "Payload files extracted; invoking host compatibility check $\r$\n"
   FileClose $R9
   DetailPrint "Checking approved official SDRangel 8.0.0 host and plugin SHA-256..."
   nsExec::ExecToStack 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-plugin.ps1" -Action Install -HostFolder "$INSTDIR" -PayloadDll "$PLUGINSDIR\ahrwwvtimedecoder.dll" -ApprovedHostHash "$PLUGINSDIR\approved-host.txt" -PayloadHash "${DLLHASH}" -Version "${APPVERSION}" -BuildCommit "${BUILDCOMMIT}" -BuildRun "42320214210"'
   Pop $0
   Pop $1
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" a
-  FileWrite $R9 "PowerShell host check returned: $0 $\\r$\\n"
+  FileWrite $R9 "PowerShell host check returned: $0; output: $1 $\r$\n"
   FileClose $R9
   StrCmp $0 "0" safe
   DetailPrint "$1"
