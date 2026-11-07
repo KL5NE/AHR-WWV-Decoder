@@ -55,7 +55,8 @@ try {
   Note 'Other plugin files unaffected' 'PASS'
   [IO.File]::WriteAllBytes($dll, [byte[]](1,2,3,4,5,6,7))
   $before = Sha $dll
-  $ignore = RunSetup
+  $refusalExit = RunSetup
+  Demand ($refusalExit -ne 0) 'Installer returned success for an unrecognized same-name DLL'
   Demand ((Sha $dll) -eq $before) 'Installer overwrote an unrecognized same-name DLL'
   Demand (-not (Test-Path $state)) 'Installer claimed ownership of an unknown DLL'
   Remove-Item $dll -Force
@@ -66,7 +67,8 @@ try {
   Copy-Item $hostExe $bak
   try {
     Add-Content -LiteralPath $hostExe -Value 'unsupported version fingerprint'
-    $ignored = RunSetup
+    $unsupportedExit = RunSetup
+    Demand ($unsupportedExit -ne 0) 'Installer returned success for an unsupported host fingerprint'
     Demand (-not (Test-Path $dll)) 'Installer accepted a non-approved host executable'
   } finally {
     Move-Item $bak $hostExe -Force
