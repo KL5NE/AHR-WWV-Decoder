@@ -105,6 +105,8 @@ unMissingHost:
   MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
   ; Quit preserves the nonzero status for silent /S refusal.
   SetErrorLevel 1
+  ; Silent NSIS may return 0 despite SetErrorLevel/Quit; enforce refusal exit status.
+  System::Call 'kernel32::ExitProcess(i 1)'
   Quit
 unHostReady:
   SetShellVarContext all
@@ -125,6 +127,8 @@ Section "Uninstall"
   MessageBox MB_ICONSTOP "Uninstall blocked to protect an unrecognized or modified DLL. Details: $1" /SD IDOK
   ; Quit preserves the nonzero status for silent /S refusal.
   SetErrorLevel 1
+  ; Silent NSIS may return 0 despite SetErrorLevel/Quit; enforce refusal exit status.
+  System::Call 'kernel32::ExitProcess(i 1)'
   Quit
 unSafe:
   ; A successful helper exit is not sufficient: verify both removal postconditions
@@ -133,11 +137,15 @@ unSafe:
     DetailPrint "Uninstall blocked: decoder DLL still exists after helper returned success."
     ; Quit preserves the nonzero status for silent /S refusal.
     SetErrorLevel 1
+    ; Silent NSIS may return 0 despite SetErrorLevel/Quit; enforce refusal exit status.
+    System::Call 'kernel32::ExitProcess(i 1)'
     Quit
   IfFileExists "$APPDATA\AHR-Decoder\installed.json" 0 +4
     DetailPrint "Uninstall blocked: ownership record still exists after helper returned success."
     ; Quit preserves the nonzero status for silent /S refusal.
     SetErrorLevel 1
+    ; Silent NSIS may return 0 despite SetErrorLevel/Quit; enforce refusal exit status.
+    System::Call 'kernel32::ExitProcess(i 1)'
     Quit
   DeleteRegKey HKLM "${KEY}"
   Delete "$PROGRAMFILES64\AHR-Decoder\install-plugin.ps1"
