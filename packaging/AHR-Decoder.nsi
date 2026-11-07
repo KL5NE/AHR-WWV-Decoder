@@ -103,8 +103,9 @@ Function un.onInit
   StrCmp $INSTDIR "" unMissingHost unHostReady
 unMissingHost:
   MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
+  ; Quit preserves the nonzero status for silent /S refusal.
   SetErrorLevel 1
-  Abort
+  Quit
 unHostReady:
   SetShellVarContext all
 FunctionEnd
@@ -122,19 +123,22 @@ Section "Uninstall"
   StrCmp $0 "0" unSafe
   DetailPrint "$1"
   MessageBox MB_ICONSTOP "Uninstall blocked to protect an unrecognized or modified DLL. Details: $1" /SD IDOK
+  ; Quit preserves the nonzero status for silent /S refusal.
   SetErrorLevel 1
-  Abort
+  Quit
 unSafe:
   ; A successful helper exit is not sufficient: verify both removal postconditions
   ; before deleting registration or the uninstaller itself.
   IfFileExists "$INSTDIR\plugins\ahrwwvtimedecoder.dll" 0 +4
     DetailPrint "Uninstall blocked: decoder DLL still exists after helper returned success."
+    ; Quit preserves the nonzero status for silent /S refusal.
     SetErrorLevel 1
-    Abort
+    Quit
   IfFileExists "$APPDATA\AHR-Decoder\installed.json" 0 +4
     DetailPrint "Uninstall blocked: ownership record still exists after helper returned success."
+    ; Quit preserves the nonzero status for silent /S refusal.
     SetErrorLevel 1
-    Abort
+    Quit
   DeleteRegKey HKLM "${KEY}"
   Delete "$PROGRAMFILES64\AHR-Decoder\install-plugin.ps1"
   Delete "$PROGRAMFILES64\AHR-Decoder\LICENSE"
