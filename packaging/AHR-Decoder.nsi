@@ -93,7 +93,13 @@ SectionEnd
 
 Function un.onInit
   SetRegView 64
+  FileOpen $R9 "$TEMP\\AHR-Decoder-Uninstall-Trace.log" w
+  FileWrite $R9 "Uninstaller onInit entered $\r$\n"
+  FileClose $R9
   ReadRegStr $INSTDIR HKLM "${KEY}" "HostDir"
+  FileOpen $R9 "$TEMP\\AHR-Decoder-Uninstall-Trace.log" a
+  FileWrite $R9 "Registered host directory: $INSTDIR $\r$\n"
+  FileClose $R9
   StrCmp $INSTDIR "" 0 +3
     MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
     SetErrorLevel 1
