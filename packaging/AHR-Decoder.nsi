@@ -96,6 +96,7 @@ Function un.onInit
   ReadRegStr $INSTDIR HKLM "${KEY}" "HostDir"
   StrCmp $INSTDIR "" 0 +3
     MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
+    SetErrorLevel 1
     Abort
 FunctionEnd
 
@@ -106,6 +107,7 @@ Section "Uninstall"
   StrCmp $0 "0" unSafe
   DetailPrint "$1"
   MessageBox MB_ICONSTOP "Uninstall blocked to protect an unrecognized or modified DLL. Details: $1" /SD IDOK
+  SetErrorLevel 1
   Abort
 unSafe:
   DeleteRegKey HKLM "${KEY}"
