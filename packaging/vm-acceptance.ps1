@@ -30,6 +30,8 @@ try {
     $diagnostic = if (Test-Path -LiteralPath $installerLog) {
       (Get-Content -LiteralPath $installerLog -Tail 12) -join ' | '
     } else { 'installer.log absent (NSIS may have failed before invoking install-plugin.ps1)' }
+    $nsisTrace = Join-Path $env:TEMP 'AHR-Decoder-NSIS-Trace.log'
+    if (Test-Path -LiteralPath $nsisTrace) { $diagnostic += '; NSIS trace: ' + ((Get-Content -LiteralPath $nsisTrace -Tail 20) -join ' | ') }
     Note 'Silent clean install diagnostic' 'FAIL' "exit=$cleanExit; $diagnostic"
     Demand $false "AHR-Decoder silent clean setup failed (exit=$cleanExit): $diagnostic"
   }
@@ -77,9 +79,10 @@ try {
   Note 'VM test harness' 'FAIL' $_.Exception.Message
   throw
 } finally {
-  $report.Insert(0,'AHR-Decoder 0.9.0-beta installer disposable Windows runner acceptance')
+  $report.Insert(0,'AHR-Decoder 0.9.1-beta installer disposable Windows runner acceptance')
   $report.Add('Not a HAMBEAST test; interactive SDRangel GUI validation remains required.')
-  if (Test-Path (Join-Path $env:TEMP 'AHR-Decoder-NSIS-Trace.log')) { Get-Content (Join-Path $env:TEMP 'AHR-Decoder-NSIS-Trace.log') | Add-Content -Path output/VM-ACCEPTANCE.txt }
   $report | Set-Content -Path output/VM-ACCEPTANCE.txt
+  $nsisTrace = Join-Path $env:TEMP 'AHR-Decoder-NSIS-Trace.log'
+  if (Test-Path -LiteralPath $nsisTrace) { Add-Content -Path output/VM-ACCEPTANCE.txt -Value '--- NSIS trace ---'; Get-Content -LiteralPath $nsisTrace | Add-Content -Path output/VM-ACCEPTANCE.txt }
   $report | ForEach-Object { Write-Host $_ }
 }
