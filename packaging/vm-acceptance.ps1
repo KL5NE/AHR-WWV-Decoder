@@ -110,6 +110,14 @@ try {
   [IO.File]::AppendAllText($dll, 'AHR-VM-TAMPER-TEST')
   $tamperedHash = Sha $dll
   $tamperedUninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+  if ($tamperedUninstall.ExitCode -eq 0) {
+    # Capture refusal-path evidence before the assertion fails. Do not weaken the test.
+    $unTracePath = Join-Path $env:TEMP 'AHR-Decoder-Uninstall-Trace.log'
+    $trace = if (Test-Path -LiteralPath $unTracePath) { (Get-Content -LiteralPath $unTracePath -Tail 15) -join ' | ' } else { 'uninstall trace absent' }
+    $helperLog = Join-Path $env:ProgramData 'AHR-Decoder\\installer.log'
+    $helperTail = if (Test-Path -LiteralPath $helperLog) { (Get-Content -LiteralPath $helperLog -Tail 12) -join ' | ' } else { 'helper log absent' }
+    Note 'Modified DLL refusal diagnostic' 'FAIL' "exit=$($tamperedUninstall.ExitCode); dllPresent=$(Test-Path -LiteralPath $dll); statePresent=$(Test-Path -LiteralPath $state); trace=$trace; helper=$helperTail"
+  }
   Demand ($tamperedUninstall.ExitCode -ne 0) 'Uninstaller accepted a modified AHR-owned DLL'
   Demand ((Sha $dll) -eq $tamperedHash) 'Uninstaller altered the modified DLL'
   Demand (Test-Path $state) 'Uninstaller removed ownership state despite refusing modified DLL'
