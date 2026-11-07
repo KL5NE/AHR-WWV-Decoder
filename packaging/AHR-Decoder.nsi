@@ -163,4 +163,9 @@ unInPlace:
   DetailPrint "In-place uninstall: executable cleanup delegated to caller."
 unCleanupDone:
   DetailPrint "Removed only the AHR-owned decoder DLL. SDRangel remains unchanged."
+  ; In-place NSIS can inherit a nonzero engine exit status even when the
+  ; helper and both removal postconditions succeeded. Explicitly return
+  ; success ONLY after those checks and registration cleanup complete.
+  SetErrorLevel 0
+  System::Call 'kernel32::ExitProcess(i 0)'
 SectionEnd
