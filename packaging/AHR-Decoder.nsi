@@ -100,10 +100,13 @@ Function un.onInit
   FileOpen $R9 "$TEMP\\AHR-Decoder-Uninstall-Trace.log" a
   FileWrite $R9 "Registered host directory: $INSTDIR $\r$\n"
   FileClose $R9
-  StrCmp $INSTDIR "" 0 +3
-    MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
-    SetErrorLevel 1
-    Abort
+  StrCmp $INSTDIR "" unMissingHost unHostReady
+unMissingHost:
+  MessageBox MB_ICONSTOP "No registered AHR-Decoder install path; uninstall is blocked." /SD IDOK
+  SetErrorLevel 1
+  Abort
+unHostReady:
+  SetShellVarContext all
 FunctionEnd
 
 Section "Uninstall"
@@ -128,7 +131,7 @@ unSafe:
     DetailPrint "Uninstall blocked: decoder DLL still exists after helper returned success."
     SetErrorLevel 1
     Abort
-  IfFileExists "$COMMONAPPDATA\AHR-Decoder\installed.json" 0 +4
+  IfFileExists "$APPDATA\AHR-Decoder\installed.json" 0 +4
     DetailPrint "Uninstall blocked: ownership record still exists after helper returned success."
     SetErrorLevel 1
     Abort
