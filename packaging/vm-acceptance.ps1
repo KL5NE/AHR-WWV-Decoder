@@ -74,8 +74,27 @@ try {
     Move-Item $bak $hostExe -Force
   }
   Note 'Unsupported host fingerprint blocked' 'PASS'
+  # Exercise the real Get-Process safety gate with an isolated, renamed Windows
+  # executable. Do not launch the SDRangel GUI on a headless runner.
+  $sentinelExe = Join-Path $env:RUNNER_TEMP 'sdrangel.exe'
+  Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\\cmd.exe') -Destination $sentinelExe -Force
+  $sentinel = $null
+  try {
+    $sentinel = Start-Process -FilePath $sentinelExe -ArgumentList '/c ping -n 45 127.0.0.1 >NUL' -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 2
+    Demand (-not $sentinel.HasExited) 'Simulated SDRangel process exited before protection test'
+    Demand (@(Get-Process -Name sdrangel -ErrorAction SilentlyContinue).Count -gt 0) 'Simulated SDRangel process was not detectable'
+    $blockedExit = RunSetup
+    Demand ($blockedExit -ne 0) 'Installer returned success while SDRangel-named process was running'
+    Demand (-not (Test-Path $dll)) 'Installer installed DLL while SDRangel-named process was running'
+    Demand (-not (Test-Path $state)) 'Installer registered ownership while SDRangel-named process was running'
+    Note 'SDRangel-running process install refusal' 'PASS'
+  } finally {
+    if ($sentinel -and -not $sentinel.HasExited) { Stop-Process -Id $sentinel.Id -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $sentinelExe -Force -ErrorAction SilentlyContinue
+  }
   Note 'SDRangel live GUI launch/plugin menu' 'NOT RUN' 'Needs interactive VM'
-  Note 'SDRangel-running lock / forced copy failure rollback' 'NOT RUN' 'Needs controlled fault injection'
+  Note 'Forced copy failure rollback' 'NOT RUN' 'Needs controlled fault injection'
   Note 'Other SDRangel releases (7.x/8.x)' 'NOT RUN' 'Hash allowlist rejects all non-approved hosts by design'
 } catch {
   Note 'VM test harness' 'FAIL' $_.Exception.Message
