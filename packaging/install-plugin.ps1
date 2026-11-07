@@ -14,7 +14,18 @@ $store = Join-Path $env:ProgramData 'AHR-Decoder'
 $statePath = Join-Path $store 'installed.json'
 $logPath = Join-Path $store 'installer.log'
 function Fail($why) { throw $why }
-function Sha($path) { return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Sha($path) {
+  # Use the built-in .NET SHA-256 implementation; do not depend on Get-FileHash
+  # being exported by the PowerShell host running the NSIS child process.
+  $stream = [System.IO.File]::OpenRead($path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $stream.Dispose()
+    $sha256.Dispose()
+  }
+}
 function AssertNativeX64($path) {
   $f = [IO.File]::OpenRead($path)
   try {
