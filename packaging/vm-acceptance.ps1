@@ -93,6 +93,16 @@ try {
     if ($sentinel -and -not $sentinel.HasExited) { Stop-Process -Id $sentinel.Id -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $sentinelExe -Force -ErrorAction SilentlyContinue
   }
+  # Verify a modified AHR-owned DLL cannot be deleted by the uninstaller.
+  Demand ((RunSetup) -eq 0) 'Reinstall before modified-DLL uninstall refusal failed'
+  Demand ((Sha $dll) -eq $expected) 'Reinstalled DLL hash mismatch before tamper test'
+  [IO.File]::AppendAllText($dll, 'AHR-VM-TAMPER-TEST')
+  $tamperedHash = Sha $dll
+  $tamperedUninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+  Demand ($tamperedUninstall.ExitCode -ne 0) 'Uninstaller accepted a modified AHR-owned DLL'
+  Demand ((Sha $dll) -eq $tamperedHash) 'Uninstaller altered the modified DLL'
+  Demand (Test-Path $state) 'Uninstaller removed ownership state despite refusing modified DLL'
+  Note 'Modified owned DLL uninstall refusal' 'PASS'
   Note 'SDRangel live GUI launch/plugin menu' 'NOT RUN' 'Needs interactive VM'
   Note 'Forced copy failure rollback' 'NOT RUN' 'Needs controlled fault injection'
   Note 'Other SDRangel releases (7.x/8.x)' 'NOT RUN' 'Hash allowlist rejects all non-approved hosts by design'
