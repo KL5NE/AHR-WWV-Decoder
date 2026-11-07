@@ -101,9 +101,15 @@ Function un.onInit
 FunctionEnd
 
 Section "Uninstall"
+  FileOpen $R9 "$TEMP\\AHR-Decoder-Uninstall-Trace.log" w
+  FileWrite $R9 "Uninstall section entered; host=$INSTDIR $\r$\n"
+  FileClose $R9
   nsExec::ExecToStack 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PROGRAMFILES64\AHR-Decoder\install-plugin.ps1" -Action Uninstall -HostFolder "$INSTDIR"'
   Pop $0
   Pop $1
+  FileOpen $R9 "$TEMP\\AHR-Decoder-Uninstall-Trace.log" a
+  FileWrite $R9 "Helper exit=$0; output=$1 $\r$\n"
+  FileClose $R9
   StrCmp $0 "0" unSafe
   DetailPrint "$1"
   MessageBox MB_ICONSTOP "Uninstall blocked to protect an unrecognized or modified DLL. Details: $1" /SD IDOK
