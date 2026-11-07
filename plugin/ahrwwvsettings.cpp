@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 ///////////////////////////////////////////////////////////////////////////////////
 // AHR WWV/WWVH Time Decoder - SDRangel receive channel plugin                   //
 // Copyright (C) 2026 KL5NE, Alaska HamRadio                                     //

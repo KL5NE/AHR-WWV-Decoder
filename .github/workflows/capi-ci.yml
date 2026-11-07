@@ -1,0 +1,47 @@
+name: AHR-Decoder C API ABI-1 checks
+
+on:
+  pull_request:
+    paths: ['capi/**', 'core/**', 'CMakeLists.txt', '.github/workflows/capi-ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-c-api:
+    name: C API host compiler / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure C ABI-1 and rig synth
+        run: cmake -S . -B build-capi -DAHRWWV_CAPI_TEST_SYNTH=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build C++ core, C ABI, and tests
+        run: cmake --build build-capi --config Release --target ahrwwv_capi_tests ahrwwv_testsynth --parallel 2
+      - name: C API ABI and synthetic rig-audio regression
+        run: ctest --test-dir build-capi -C Release --output-on-failure -R '^ahrwwv_capi_tests$'
+  windows-gnu-cross-compile:
+    name: Windows x64 GNU / MinGW C API compilation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64 C and C++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 cmake ninja-build
+      - name: Configure Windows GNU C API (compile-only)
+        run: |
+          cmake -S . -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DAHRWWV_BUILD_TESTS=OFF \
+            -DAHRWWV_CAPI_TEST_SYNTH=ON
+      - name: Build C ABI and synthetic test library
+        run: cmake --build build-mingw --target ahrwwv_capi ahrwwv_testsynth --parallel 2

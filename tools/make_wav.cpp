@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // wwv_make_wav: write a synthetic WWV/WWVH recording for testing.
 // Usage: wwv_make_wav out.wav [--iq] [--seconds N] [--snr dB] [--fade depth] [--wwvh] [--rate Hz]
 #include "wavio.h"
