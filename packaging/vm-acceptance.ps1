@@ -47,6 +47,15 @@ try {
   Demand ($upgraded.dllSha256 -eq $expected) 'Upgraded state ownership record mismatch'
   $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
   Demand ($uninstall.ExitCode -eq 0) 'Uninstall failed'
+  if (Test-Path -LiteralPath $dll) {
+    # Preserve the exact failure evidence before the assertion aborts the VM job.
+    $helperLog = Join-Path $env:ProgramData 'AHR-Decoder\installer.log'
+    $nsisLog = Join-Path $env:TEMP 'AHR-Decoder-NSIS-Trace.log'
+    $helperTail = if (Test-Path -LiteralPath $helperLog) { (Get-Content -LiteralPath $helperLog -Tail 12) -join ' | ' } else { 'absent' }
+    $nsisTail = if (Test-Path -LiteralPath $nsisLog) { (Get-Content -LiteralPath $nsisLog -Tail 12) -join ' | ' } else { 'absent' }
+    $statePresent = Test-Path -LiteralPath $state
+    Note 'Uninstall removal diagnostic' 'FAIL' "exit=$($uninstall.ExitCode); dllSha=$(Sha $dll); statePresent=$statePresent; helperLog=$helperTail; nsisTrace=$nsisTail"
+  }
   Demand (-not (Test-Path $dll)) 'Uninstaller left AHR DLL installed'
   Demand (-not (Test-Path $state)) 'Uninstaller left active ownership record'
   Note 'Uninstall owned DLL only' 'PASS'
