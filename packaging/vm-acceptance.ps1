@@ -46,15 +46,17 @@ try {
   Note 'Recognized AHR upgrade' 'PASS'
   $upgraded = Get-Content $state -Raw | ConvertFrom-Json
   Demand ($upgraded.dllSha256 -eq $expected) 'Upgraded state ownership record mismatch'
-  $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/S', "_?=$installDir") -Wait -PassThru
+  # Standard NSIS copied-uninstaller mode: validate actual removal via DLL/state
+  # postconditions, rather than relying solely on the launcher exit status.
+  $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
   if ($uninstall.ExitCode -ne 0) {
     $unTracePath = Join-Path $env:TEMP 'AHR-Decoder-Uninstall-Trace.log'
     $trace = if (Test-Path -LiteralPath $unTracePath) { (Get-Content -LiteralPath $unTracePath -Tail 20) -join ' | ' } else { 'uninstall trace absent' }
     $helperLog = Join-Path $env:ProgramData 'AHR-Decoder\\installer.log'
     $helperTail = if (Test-Path -LiteralPath $helperLog) { (Get-Content -LiteralPath $helperLog -Tail 12) -join ' | ' } else { 'helper log absent' }
-    Note 'In-place normal uninstall diagnostic' 'FAIL' "exit=$($uninstall.ExitCode); dllPresent=$(Test-Path -LiteralPath $dll); statePresent=$(Test-Path -LiteralPath $state); uninstallerPresent=$(Test-Path -LiteralPath $uninstaller); trace=$trace; helper=$helperTail"
+    Note 'Normal uninstall diagnostic' 'FAIL' "exit=$($uninstall.ExitCode); dllPresent=$(Test-Path -LiteralPath $dll); statePresent=$(Test-Path -LiteralPath $state); uninstallerPresent=$(Test-Path -LiteralPath $uninstaller); trace=$trace; helper=$helperTail"
   }
-  Demand ($uninstall.ExitCode -eq 0) "In-place normal uninstall returned $($uninstall.ExitCode)"
+  Demand ($uninstall.ExitCode -eq 0) "Normal uninstall returned $($uninstall.ExitCode)"
   if (Test-Path -LiteralPath $dll) {
     # Preserve the exact failure evidence before the assertion aborts the VM job.
     $helperLog = Join-Path $env:ProgramData 'AHR-Decoder\installer.log'
