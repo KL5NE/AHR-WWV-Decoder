@@ -20,3 +20,4 @@ cmake-build-*/
 *.mp3
 *.raw
 *.sigmf-data
+*.sdriq
