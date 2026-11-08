@@ -73,7 +73,14 @@ try {
   # NSIS _?= runs in place to expose the real refusal exit code, so it cannot
   # delete its own executable. Clean up only after removal postconditions pass.
   Remove-Item -LiteralPath $uninstaller -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $installDir -Force -ErrorAction SilentlyContinue
+  # Standard NSIS uninstall removes its own directory; do not attempt a second
+  # recursive directory removal. Assert the owned DLL/state were removed above.
+  if (Test-Path -LiteralPath $installDir -PathType Container) {
+    $leftovers = @(Get-ChildItem -LiteralPath $installDir -Force -ErrorAction Stop)
+    if ($leftovers.Count -eq 0) {
+      [System.IO.Directory]::Delete($installDir)
+    }
+  }
   Note 'Uninstall owned DLL only' 'PASS'
   $remaining = @(Get-ChildItem (Join-Path $hostFolder 'plugins') -File | ForEach-Object { "$($_.Name) $(Sha $_.FullName)" })
   Demand ((Compare-Object $existing $remaining).Length -eq 0) 'Other SDRangel plugins changed'
