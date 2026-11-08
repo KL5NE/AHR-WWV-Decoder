@@ -1,4 +1,5 @@
-Unicode true
+Unicode True
+ManifestDPIAware true
 !include "MUI2.nsh"
 !include "x64.nsh"
 !ifndef STAGE
@@ -18,7 +19,7 @@ Unicode true
   !error "Pass /DAPPVERSION=... from packaging/VERSION.txt"
 !endif
 !define KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\AHR-Decoder"
-Name "AHR-Decoder ${APPVERSION} — WWV/WWVH time decoder for SDRangel 8.0.0"
+Name "AHR WWV/WWVH Time Decoder - Setup (${APPVERSION})"
 OutFile "${OUTPUT}"
 InstallDir "$PROGRAMFILES64\SDRangel"
 InstallDirRegKey HKLM "${KEY}" "HostDir"
@@ -55,6 +56,7 @@ Section "AHR-Decoder plugin" SecPlugin
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" a
   FileWrite $R9 "Plugin temp initialized: $PLUGINSDIR $\r$\n"
   FileClose $R9
+  SetOverwrite on
   SetOutPath "$PLUGINSDIR"
   File /oname=ahrwwvtimedecoder.dll "${STAGE}\ahrwwvtimedecoder.dll"
   File /oname=approved-host.txt "${STAGE}\approved-host.txt"
