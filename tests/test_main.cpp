@@ -327,6 +327,7 @@ struct RunResult {
     double maxBoundaryErr = 0;   // vs. truth, after Verified (s)
     int holdoverSeconds = 0;
     int provisionalSeen = 0, provisionalPublicUtcLeaks = 0, provisionalClockOffsetLeaks = 0;
+    int holdoverPublicUtcLeaks = 0, holdoverClockOffsetLeaks = 0;
     DecoderStatus final;
     double finalUtcErr = 1e9;
 };
@@ -389,6 +390,13 @@ static RunResult runScenario(const SimConfig& sc, double seconds, bool audio = f
             double tentativeUtc;
             if (dec.currentUtc(tentativeUtc)) rr.provisionalPublicUtcLeaks++;
             if (s.haveClockOffset) rr.provisionalClockOffsetLeaks++;
+        }
+        // HOLDOVER is explicitly not trusted UTC: the public API and offset
+        // readiness flag must both be closed even if a predicted time remains.
+        if (s.state == DecoderState::Holdover) {
+            double staleUtc;
+            if (dec.currentUtc(staleUtc)) rr.holdoverPublicUtcLeaks++;
+            if (s.haveClockOffset) rr.holdoverClockOffsetLeaks++;
         }
         if (rr.tDecoded < 0 && (s.state == DecoderState::Decoded || s.state == DecoderState::Verified)) rr.tDecoded = t;
         if (rr.tVerified < 0 && s.state == DecoderState::Verified) rr.tVerified = t;
@@ -626,6 +634,9 @@ static void testDropoutHoldover()
     report("dropout 200-380 s", r);
     std::printf("    holdover seconds %d, max reported uncertainty %.1f ms\n", r.holdoverSeconds, maxUnc * 1e3);
     CHECK(sawHoldover, "never entered holdover");
+    CHECK(r.holdoverPublicUtcLeaks == 0 && r.holdoverClockOffsetLeaks == 0,
+          "holdover leaked trusted UTC %d times or clock offset %d times",
+          r.holdoverPublicUtcLeaks, r.holdoverClockOffsetLeaks);
     CHECK(r.final.state == DecoderState::Verified, "did not recover (%s)", decoderStateName(r.final.state));
     CHECK(r.wrongSeconds == 0, "wrong seconds %d", r.wrongSeconds);
     CHECK(std::fabs(r.finalUtcErr) < 0.002, "final err %.4f", r.finalUtcErr);
