@@ -51,6 +51,13 @@ const char* decoderStateName(DecoderState s);
 enum class StationId { Unknown, WWV, WWVH, Both };
 const char* stationName(StationId s);
 
+// Consecutive raw-minute observations must have unique adjacent IDs and
+// boundaries 60 seconds apart. These helpers are exercised by tests and
+// used in independent-confirmation logic (never inferred from decoded UTC).
+bool consecutiveRawMinutes(const std::vector<uint64_t>& ids, const std::vector<double>& b59);
+bool disjointRawMinuteWindows(uint64_t firstA, uint64_t lastA,
+                              uint64_t firstB, uint64_t lastB);
+
 struct SecondSymbol {
     double boundaryTime = 0.0;  // sample-clock time of the second's start (s)
     int framePosition = -1;     // 0..59 once frame-locked, else -1
@@ -78,7 +85,11 @@ struct DecoderStatus {
     bool haveTime = false;           // a decoded (or holdover) time is available
     TimeCode lastTimeCode;           // most recent valid frame contents
     double frameConfidence = 0.0;    // 0..1 of most recent decode attempt
-    int verifiedFrames = 0;          // consecutive agreeing frames
+    int verifiedFrames = 0;          // independent agreeing frames
+    // Raw minute IDs used for the most recent independent confirmation.
+    // Zero means no independent confirmation yet.
+    uint64_t confirmationPreviousLastFrameId = 0;
+    uint64_t confirmationCurrentFirstFrameId = 0;
     std::string lastProblem;         // why the last frame was rejected
     double holdoverAge = 0.0;        // seconds since last good frame (Holdover)
     double timeUncertainty = 0.0;    // 1 sigma of UTC at receiver, excl. host (s)
@@ -96,7 +107,7 @@ struct DecoderEvent {
     DecodeResult decode;          // for Frame*
     DecoderState state = DecoderState::Searching;
     double utcAtBoundary = 0.0;   // Unix UTC (s) of the boundary just passed, if haveTime
-    bool haveUtc = false;
+    bool haveUtc = false; // Only trusted VERIFIED/HOLDOVER seconds may carry UTC
 };
 
 class WwvDecoder {

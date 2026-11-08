@@ -165,11 +165,12 @@ void AHRWWVGUI::handleReport(const AHRWWVReport& report)
             const ahrwwv::TimeCode& tc = fr.result.tc;
             int mon, day;
             ahrwwv::dayOfYearToDate(tc.year, tc.dayOfYear, mon, day);
-            m_lastFrameText = QString("%1-%2-%3 %4:%5 UTC (day %6), received %7 local")
+            m_lastFrameText = QString("%8%1-%2-%3 %4:%5 UTC (day %6), received %7 local")
                 .arg(tc.year, 4, 10, QChar('0')).arg(mon, 2, 10, QChar('0')).arg(day, 2, 10, QChar('0'))
                 .arg(tc.hour, 2, 10, QChar('0')).arg(tc.minute, 2, 10, QChar('0'))
                 .arg(tc.dayOfYear, 3, 10, QChar('0'))
-                .arg(QTime::currentTime().toString("HH:mm:ss"));
+                .arg(QTime::currentTime().toString("HH:mm:ss"))
+                .arg(report.status.state == DecoderState::Verified ? "" : "UNCONFIRMED candidate: ");
         }
     }
 
@@ -294,6 +295,22 @@ void AHRWWVGUI::updateClock()
 
     ui->syncBadge->setText(badge);
 
+    // A single strong-looking joint decode can still be minutes wrong under
+    // fading. Present only a grey, minute-resolution candidate until an
+    // independent raw-minute window verifies the UTC clock.
+    if (m_haveReport && age <= kNoDataSeconds
+        && st.state == DecoderState::Decoded && st.haveTime)
+    {
+        const ahrwwv::TimeCode& guess = st.lastTimeCode;
+        ui->utcTime->setText(QString("%1:%2:--")
+            .arg(guess.hour, 2, 10, QChar('0'))
+            .arg(guess.minute, 2, 10, QChar('0')));
+        setLabelStyle(ui->utcTime, "QLabel { color: #808080; }");
+        ui->utcDate->setText("UNCONFIRMED candidate minute — not a verified UTC clock");
+        ui->pcOffset->setText("PC clock: comparison withheld until VERIFIED");
+        return;
+    }
+
     bool live = m_haveReport && (age <= kNoDataSeconds) && m_report.haveUtc && st.haveTime;
 
     if (!live)
@@ -304,10 +321,10 @@ void AHRWWVGUI::updateClock()
         if (!m_haveReport || age > kNoDataSeconds) {
             ui->utcDate->setText(m_settings.m_decoderEnabled ? "No samples: is the device running?" : "Decoder disabled");
         } else {
-            ui->utcDate->setText("Waiting for a valid minute frame (1-3 minutes)");
+            ui->utcDate->setText("Waiting for independently VERIFIED minute frames");
         }
 
-        ui->pcOffset->setText("PC clock: no comparison (no decoded time)");
+        ui->pcOffset->setText("PC clock: no comparison (no VERIFIED time)");
         return;
     }
 
@@ -338,7 +355,7 @@ void AHRWWVGUI::updateClock()
         .arg(wd[weekday]).arg(tc.dayOfYear, 3, 10, QChar('0')).arg(kind));
 
     // PC clock comparison (read only)
-    if (st.haveClockOffset && (st.state == DecoderState::Verified || st.state == DecoderState::Decoded))
+    if (st.haveClockOffset && st.state == DecoderState::Verified)
     {
         double lat, lon;
         getRxPosition(lat, lon);
@@ -372,7 +389,7 @@ void AHRWWVGUI::updateClock()
     }
     else
     {
-        ui->pcOffset->setText("PC clock: waiting for decoded time");
+        ui->pcOffset->setText("PC clock: waiting for VERIFIED time");
     }
 }
 

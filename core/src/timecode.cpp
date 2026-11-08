@@ -166,16 +166,39 @@ DecodeResult decodeFrame(const Frame& f)
     return r;
 }
 
-DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
+SoftFrame calibrateSoftFrame(const SoftFrame& raw)
+{
+    // Noise scale of this frame: the true hypothesis' cost is a weighted sum
+    // of three squared errors (chi-square, 3 dof: median = 2.366 sigma^2).
+    double best[60];
+    for (int p = 0; p < 60; p++) best[p] = *std::min_element(raw[p].begin(), raw[p].end());
+    std::nth_element(best, best + 30, best + 60);
+    // Floor: a perfectly clean (synthetic) frame must not divide by zero; at
+    // the floor a clean second's runner-up is still worth the full outlier cap.
+    const double sigma2 = std::max(best[30] / 2.366, 0.01);
+    const double cap = -std::log(kOutlierProb);
+    SoftFrame out;
+    for (int p = 0; p < 60; p++) {
+        double x[4];
+        for (int h = 0; h < 4; h++) x[h] = raw[p][h] / (2.0 * sigma2);
+        double m = *std::min_element(x, x + 4);
+        for (int h = 0; h < 4; h++) {
+            double e = x[h] - m; // >= 0
+            // -ln((1-eps) exp(-e) + eps), shifted so the best hypothesis is 0.
+            double v = -std::log((1.0 - kOutlierProb) * std::exp(-e) + kOutlierProb);
+            out[p][h] = std::min(v, cap);
+        }
+    }
+    return out;
+}
+
+DecodeResult decodeFrameSoft(const SoftFrame& raw, double minFieldMargin)
 {
     DecodeResult r;
-    auto argmin = [&](int p) {
-        int b = 0;
-        for (int h = 1; h < 4; h++) if (c[p][h] < c[p][b]) b = h;
-        return b;
-    };
+    const SoftFrame c = calibrateSoftFrame(raw);
     // Only count a clear contradiction as a structure error. Weak skywave
     // pulses can marginally favor a forbidden symbol without being reliable.
+    // Structure is judged on the raw costs, exactly as before calibration.
     const double kStructMargin = 0.5;
     for (int p = 0; p < 60; p++) {
         bool allowed[4] = {false, false, false, false};
@@ -185,8 +208,8 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
         double bestAllowed = 1e300, bestForbidden = 1e300;
         for (int h = 0; h < 4; h++) {
             if (p != 0 && h == 0) continue; // faded missing pulse = erasure
-            if (allowed[h]) bestAllowed = std::min(bestAllowed, c[p][h]);
-            else bestForbidden = std::min(bestForbidden, c[p][h]);
+            if (allowed[h]) bestAllowed = std::min(bestAllowed, raw[p][h]);
+            else bestForbidden = std::min(bestForbidden, raw[p][h]);
         }
         if (bestForbidden + kStructMargin < bestAllowed) r.structureErrors++;
     }
@@ -236,15 +259,8 @@ DecodeResult decodeFrameSoft(const SoftFrame& c, double minFieldMargin)
 
     if (r.structureErrors > 3)
         r.problems.push_back(std::to_string(r.structureErrors) + " seconds break the frame structure");
-    // Scale the required margin with the noise seen in this frame: estimate
-    // sigma from the median best-hypothesis cost (chi-square, 3 dof:
-    // median = 2.366 sigma^2).
-    double best[60];
-    for (int p = 0; p < 60; p++) best[p] = c[p][argmin(p)];
-    std::nth_element(best, best + 30, best + 60);
-    double sigma = std::sqrt(best[30] / 2.366);
-    double need = std::max(minFieldMargin, 2.0 * sigma);
-    if (r.minMargin < need)
+    // Margins are log-likelihood ratios: this frame's noise is already in them.
+    if (r.minMargin < minFieldMargin)
         r.problems.push_back(r.weakestField + " too weak to read");
     r.valid = r.problems.empty();
     return r;
@@ -282,15 +298,20 @@ double bcdCostOf(const SoftFrame& c, const int (&pos)[N], int value)
 
 } // namespace
 
-DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& f, double minFieldMargin)
+DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& raw, double minFieldMargin)
 {
-    if (f.size() == 1) return decodeFrameSoft(f[0], minFieldMargin);
+    if (raw.size() == 1) return decodeFrameSoft(raw[0], minFieldMargin);
     DecodeResult r;
-    const int K = int(f.size());
+    const int K = int(raw.size());
     if (K == 0) { r.problems.push_back("no frames"); return r; }
     r.framesUsed = K;
     int worstStructure = 0;
-    for (auto& c : f) worstStructure = std::max(worstStructure, structureErrorsOf(c));
+    for (auto& c : raw) worstStructure = std::max(worstStructure, structureErrorsOf(c));
+    // Each frame is calibrated on its own noise, so a noisy minute adds less
+    // than a clean one and log-likelihoods simply add across frames.
+    std::vector<SoftFrame> f;
+    f.reserve(raw.size());
+    for (auto& c : raw) f.push_back(calibrateSoftFrame(c));
     r.structureErrors = worstStructure;
     r.minMargin = 1e300;
     auto note = [&](const char* name, double best, double second) {
@@ -373,13 +394,7 @@ DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& f, double minFieldMa
 
     if (worstStructure > 3)
         r.problems.push_back(std::to_string(worstStructure) + " seconds break the frame structure");
-    std::vector<double> best;
-    for (auto& c : f)
-        for (int p = 0; p < 60; p++) best.push_back(*std::min_element(c[p].begin(), c[p].end()));
-    std::nth_element(best.begin(), best.begin() + best.size() / 2, best.end());
-    double sigma = std::sqrt(best[best.size() / 2] / 2.366);
-    double need = std::max(minFieldMargin, 2.0 * sigma);
-    if (r.minMargin < need)
+    if (r.minMargin < minFieldMargin)
         r.problems.push_back(r.weakestField + " too weak to read");
     r.valid = r.problems.empty();
     return r;

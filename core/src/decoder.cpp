@@ -196,6 +196,22 @@ const char* decoderStateName(DecoderState s)
     return "?";
 }
 
+bool consecutiveRawMinutes(const std::vector<uint64_t>& ids, const std::vector<double>& b59)
+{
+    if (ids.empty() || ids.size() != b59.size()) return false;
+    for (size_t i = 1; i < ids.size(); i++)
+        if (ids[i] != ids[i - 1] + 1 || std::fabs((b59[i] - b59[i - 1]) - 60.0) > 0.5)
+            return false;
+    return true;
+}
+
+bool disjointRawMinuteWindows(uint64_t firstA, uint64_t lastA,
+                              uint64_t firstB, uint64_t lastB)
+{
+    if (!firstA || !firstB || firstA > lastA || firstB > lastB) return false;
+    return lastA < firstB || lastB < firstA;
+}
+
 const char* stationName(StationId s)
 {
     switch (s) {
@@ -252,6 +268,14 @@ constexpr double kMaxPulseGain = 1.5;
 constexpr size_t kHrefPulses = 31;
 constexpr double kMinSymbolConf = 0.15;  // below this a second is shown as "?"
 constexpr double kEdgeAlpha = 0.05;      // fine timing loop gain (~40 s averaging)
+// Frame margins are log-likelihood ratios in nats (calibrateSoftFrame).
+// A first decode needs this much before it can stand as the time basis on
+// its own; weaker valid decodes are kept only as candidates for confirmation.
+// One second can count for at most -ln(kOutlierProb) = 4.6 nats, so a
+// single-bit field (leap second, DST) from one minute reaches this only when
+// its second is unambiguous.
+constexpr double kStrongDecodeNats = 4.5;
+constexpr double kConfidenceFullNats = 8.0; // margin shown as confidence 1.00
 
 } // namespace
 
@@ -312,16 +336,23 @@ struct WwvDecoder::Impl {
     double lastGoodT = -1e18;
     int verified = 0;
     TimeCode lastTc;
-    std::deque<std::pair<double, double>> candidates; // (frame minute UTC, b59 sample time)
-    // Soft costs of the most recent consecutive frames, for joint decoding.
-    struct RecentFrame { SoftFrame soft; double b59; };
+    // Raw minute identities are assigned from the sample stream, never from
+    // the tentative decoded UTC. All joint and confirming evidence is tracked
+    // by exact [firstId, lastId] ranges.
+    struct Candidate { double minuteUtc; double b59; uint64_t firstId, lastId; };
+    std::deque<Candidate> candidates;
+    struct RecentFrame { SoftFrame soft; double b59; uint64_t id; };
     std::deque<RecentFrame> recentFrames;
-    // Five consecutive frames allow high-latitude fading diversity.
+    uint64_t nextRawMinuteId = 0;
+    uint64_t timeBasisLastFrameId = 0;
+    uint64_t confirmationPreviousLastFrameId = 0;
+    uint64_t confirmationCurrentFirstFrameId = 0;
+    // Up to five consecutive minutes are read together. Faded minutes are
+    // weak but not wrong; the date fields need more than three of them under
+    // high-latitude fading (live 10 MHz, Palmer AK, 2026-11-05).
     static constexpr int kMaxJointFrames = 5;
-    // Newest frame (b59) that the current time was first established from.
-    // Verification needs a later decode that uses none of those frames.
-    double timeBasisEnd = -1e18;
-
+    // Verification needs later raw minutes that share no evidence with the
+    // previous basis, even when both decodes use overlapping joint windows.
     bool tickActive = false;
     double tickStart = 0, tickEnd = 0;
     double g1r = 0, g1i = 0, g2r = 0, g2i = 0, tickE = 0;
@@ -655,9 +686,17 @@ struct WwvDecoder::Impl {
         ev.second = hist.back().s;
         double utc;
         if (utcAt(ss.boundaryTime, utc)) {
-            ev.utcAtBoundary = std::round(utc);
-            ev.haveUtc = true;
-            updateClockOffset(ss.boundaryTime, ev.utcAtBoundary);
+            // DECODED can be a confidently wrong hypothesis. Never label
+            // a second as UTC or compare it to the PC clock until VERIFIED.
+            // HOLDOVER is an estimate, not a trusted clock observation.
+            // Gate each second independently; stale verified frames alone
+            // cannot authorize a UTC-labelled event or clock-offset update.
+            if (verified >= 2 && secLocked && frameLocked
+                && lastSampleTime - lastGoodT < 125.0) {
+                ev.utcAtBoundary = std::round(utc);
+                ev.haveUtc = true;
+                updateClockOffset(ss.boundaryTime, ev.utcAtBoundary);
+            }
         }
         events.push_back(ev);
         updateState();
@@ -720,24 +759,47 @@ struct WwvDecoder::Impl {
 
         // Keep the recent frames: a re-decode of the same frame after
         // re-alignment replaces it; a gap in the minute sequence starts over.
-        if (!recentFrames.empty() && std::fabs(b59 - recentFrames.back().b59) < 0.5)
+        uint64_t rawId = 0;
+        if (!recentFrames.empty() && std::fabs(b59 - recentFrames.back().b59) < 0.5) {
+            rawId = recentFrames.back().id; // a re-decode, NOT a new raw minute
             recentFrames.pop_back();
-        if (!recentFrames.empty() && std::fabs(b59 - recentFrames.back().b59 - 60.0) > 0.5)
+        }
+        if (!recentFrames.empty() && std::fabs((b59 - recentFrames.back().b59) - 60.0) > 0.5) {
+            // A discontinuity invalidates any previous candidate for
+            // independent confirmation. A verified clock may hold over, but
+            // an unconfirmed hypothesis must not bridge missing raw minutes.
             recentFrames.clear();
-        recentFrames.push_back(RecentFrame{soft, b59});
+            candidates.clear();
+            if (verified < 2) {
+                haveTime = false;
+                verified = 0;
+                timeBasisLastFrameId = 0;
+                offAvgInit = false;
+            }
+        }
+        if (!rawId) rawId = ++nextRawMinuteId;
+        recentFrames.push_back(RecentFrame{soft, b59, rawId});
         while (int(recentFrames.size()) > kMaxJointFrames) recentFrames.pop_front();
 
         DecodeResult r = decodeFrameSoft(soft);
-        double firstB59 = b59; // oldest frame this decode used
-        // A single frame can be too weak after a fade; read it together with
-        // the previous one or two minutes before giving up on it.
+        uint64_t firstId = recentFrames.back().id;
+        uint64_t lastId = recentFrames.back().id;
+        // A joint window may only contain consecutive, distinct raw minutes
+        // aligned 60 sample-clock seconds apart.
         for (int k = 2; !r.valid && k <= int(recentFrames.size()); k++) {
             std::vector<SoftFrame> fs;
-            for (size_t i = recentFrames.size() - k; i < recentFrames.size(); i++) fs.push_back(recentFrames[i].soft);
+            std::vector<uint64_t> ids;
+            std::vector<double> boundaries;
+            for (size_t i = recentFrames.size() - k; i < recentFrames.size(); i++) {
+                fs.push_back(recentFrames[i].soft);
+                ids.push_back(recentFrames[i].id);
+                boundaries.push_back(recentFrames[i].b59);
+            }
+            if (!consecutiveRawMinutes(ids, boundaries)) continue;
             DecodeResult rj = decodeFramesSoft(fs);
-            if (rj.valid) { r = rj; firstB59 = recentFrames[recentFrames.size() - k].b59; }
+            if (rj.valid) { r = rj; firstId = ids.front(); }
         }
-        st.frameConfidence = std::clamp(r.minMargin, 0.0, 1.0);
+        st.frameConfidence = std::clamp(r.minMargin / kConfidenceFullNats, 0.0, 1.0);
         st.lastFrame = syms;
 
         double predMinute = 0;
@@ -759,39 +821,58 @@ struct WwvDecoder::Impl {
             // (same UTC offset from the sample clock)? Two independent frames
             // that agree confirm each other even if frames in between failed.
             bool confirmedByOld = false;
-            for (auto& c : candidates)
-                if (std::fabs(M - c.first) > 0.5 && std::fabs((M - c.first) - std::round(b59 - c.second)) < 0.5
-                    && c.second < firstB59 - 0.5) // no frame shared with this decode
+            uint64_t oldLastId = 0;
+            for (const auto& c : candidates)
+                if (std::fabs(M - c.minuteUtc) > 0.5
+                    && std::fabs((M - c.minuteUtc) - (b59 - c.b59)) < 0.5
+                    && c.lastId < firstId
+                    && disjointRawMinuteWindows(c.firstId, c.lastId, firstId, lastId)) {
                     confirmedByOld = true;
-            while (!candidates.empty() && b59 - candidates.front().second > 900.0) candidates.pop_front();
-            candidates.emplace_back(M, b59);
+                    oldLastId = c.lastId;
+                    break;
+                }
+            while (!candidates.empty() && b59 - candidates.front().b59 > 900.0) candidates.pop_front();
+            if (r.minMargin >= kStrongDecodeNats) candidates.push_back(Candidate{M, b59, firstId, lastId});
 
             if (agree) {
-                if (firstB59 > timeBasisEnd + 0.5) {
+                if (timeBasisLastFrameId && timeBasisLastFrameId < firstId) {
+                    if (verified == 1) {
+                        confirmationPreviousLastFrameId = timeBasisLastFrameId;
+                        confirmationCurrentFirstFrameId = firstId;
+                    }
                     verified++;
+                    timeBasisLastFrameId = lastId;
                     st.lastProblem = "";
                 } else {
-                    st.lastProblem = "agrees; waiting for an independent frame";
+                    st.lastProblem = "agrees; waiting for a disjoint raw-minute window";
                 }
+            } else if (haveTime && verified >= 2) {
+                // Never replace an established VERIFIED clock with contradictory
+                // time, even if two later joint candidates agree with each
+                // other. Flag the disagreement and retain the trusted anchor;
+                // reacquisition requires an explicit reset or loss of lock.
+                accept = false;
+                st.lastProblem = "candidate contradicts VERIFIED time; manual review/reacquisition needed";
             } else if (confirmedByOld) {
                 verified = std::max(verified + 1, 2);
-                timeBasisEnd = b59;
-                st.lastProblem = haveTime ? "time changed: confirmed by two frames" : "";
-            } else if (haveTime && verified >= 2) {
-                accept = false; // keep the verified time; this frame stays a candidate
-                st.lastProblem = "frame disagrees with verified time; waiting for confirmation";
+                confirmationPreviousLastFrameId = oldLastId;
+                confirmationCurrentFirstFrameId = firstId;
+                timeBasisLastFrameId = lastId;
+                st.lastProblem = haveTime ? "time changed: confirmed by two disjoint raw-minute windows" : "";
             } else if (haveTime) {
                 // Conflicts with an unverified time: trust neither until confirmed.
                 accept = false;
                 haveTime = false;
                 verified = 0;
+                timeBasisLastFrameId = 0;
+                offAvgInit = false;
                 st.lastProblem = "frame disagrees with unverified time; waiting for confirmation";
-            } else if (r.minMargin < 0.5) {
+            } else if (r.minMargin < kStrongDecodeNats) {
                 accept = false; // weak first decode: keep as candidate only
                 st.lastProblem = "weak decode; waiting for confirmation";
             } else {
                 verified = 1;
-                timeBasisEnd = b59;
+                timeBasisLastFrameId = lastId;
                 st.lastProblem = "";
             }
         }
@@ -804,8 +885,10 @@ struct WwvDecoder::Impl {
             lastTc = r.tc;
             frameFailures = 0;
             ev.type = DecoderEvent::Type::FrameDecoded;
-            ev.utcAtBoundary = M + 59;
-            ev.haveUtc = true;
+            if (verified >= 2) {
+                ev.utcAtBoundary = M + 59;
+                ev.haveUtc = true;
+            }
         } else if (!r.valid) {
             st.lastProblem = r.problems.empty() ? "invalid frame" : r.problems.front();
             // A weak frame still refreshes holdover if it fits the expected time well.
@@ -835,6 +918,8 @@ struct WwvDecoder::Impl {
                 if (!consistent && verified < 2 && excess > 2.0) {
                     haveTime = false;
                     verified = 0;
+                    timeBasisLastFrameId = 0;
+                    offAvgInit = false;
                     st.lastProblem += "; unverified time dropped";
                 }
                 if (consistent) {
@@ -864,7 +949,7 @@ struct WwvDecoder::Impl {
     void updateClockOffset(double b, double utcB)
     {
         if (!havePc) return;
-        if (!(lastState == DecoderState::Verified || lastState == DecoderState::Decoded)) return;
+        if (verified < 2 || lastState != DecoderState::Verified) return;
         double pcB = pcRef + (b - pcRefT);
         double off = pcB - (utcB + cfg.propagationDelay);
         if (!offAvgInit || std::fabs(off - offAvg) > 0.5) { offAvg = off; offAvgInit = true; }
@@ -879,6 +964,7 @@ struct WwvDecoder::Impl {
         if (haveTime && (age > cfg.holdoverLimit || (verified < 2 && age > 130.0))) {
             haveTime = false;
             verified = 0;
+            timeBasisLastFrameId = 0;
             offAvgInit = false;
             if (!secLocked) { scheduling = false; frameLocked = false; hist.clear(); }
         }
@@ -913,6 +999,8 @@ struct WwvDecoder::Impl {
         st.haveTime = haveTime;
         st.lastTimeCode = lastTc;
         st.verifiedFrames = verified;
+        st.confirmationPreviousLastFrameId = confirmationPreviousLastFrameId;
+        st.confirmationCurrentFirstFrameId = confirmationCurrentFirstFrameId;
         st.holdoverAge = haveTime ? std::max(0.0, age) : 0.0;
         if (frameLocked) st.framePosition = pos;
         else if (haveTime) {
@@ -924,7 +1012,8 @@ struct WwvDecoder::Impl {
         double unc = std::sqrt(sb * sb + cfg.propagationUncertainty * cfg.propagationUncertainty);
         if (s == DecoderState::Holdover) unc += cfg.sampleClockPpmUncertainty * 1e-6 * st.holdoverAge;
         st.timeUncertainty = haveTime ? unc : 0.0;
-        st.haveClockOffset = havePc && offAvgInit && haveTime;
+        // The offset is trustworthy only while VERIFIED, never in HOLDOVER.
+        st.haveClockOffset = havePc && offAvgInit && s == DecoderState::Verified;
         st.clockOffset = offAvg;
         st.clockOffsetUncertainty = std::sqrt(unc * unc + cfg.hostTimestampUncertainty * cfg.hostTimestampUncertainty);
 
@@ -1012,7 +1101,15 @@ void WwvDecoder::setEnvelopeTap(EnvelopeTap fn, void* user)
 }
 double WwvDecoder::detectorDelay() const { return d->delay; }
 double WwvDecoder::currentSampleTime() const { return d->lastSampleTime; }
-bool WwvDecoder::utcAt(double t, double& utc) const { return d->utcAt(t, utc); }
+// The public UTC API must not expose a provisional DECODED hypothesis.
+// Internal Impl::utcAt remains available solely for comparing candidate
+// frames, never for a trusted clock, PC offset or time-labelled events.
+bool WwvDecoder::utcAt(double t, double& utc) const
+{
+    // HOLDOVER may retain a predicted time internally, but callers must not
+    // mistake that prediction for a fresh, verified atomic time observation.
+    return d->st.state == DecoderState::Verified && d->verified >= 2 && d->utcAt(t, utc);
+}
 
 void WwvDecoder::setNextSampleTimestamp(double pc)
 {

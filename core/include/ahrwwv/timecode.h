@@ -63,7 +63,33 @@ using SoftFrame = std::array<std::array<double, 4>, 60>;
 // marker/second-0/unused-bit structure holds (<= 3 wrong-kind pulses;
 // a faded missing pulse is treated as an erasure) and every
 // field beats its runner-up by at least minFieldMargin.
-DecodeResult decodeFrameSoft(const SoftFrame& cost, double minFieldMargin = 0.25);
+//
+// Field choices and margins use calibrated log-likelihoods (nats, see
+// calibrateSoftFrame), so minFieldMargin is a log-likelihood ratio: 4 nats
+// means the chosen value is about 55 times likelier than the runner-up.
+constexpr double kDefaultFieldMarginNats = 4.0;
+DecodeResult decodeFrameSoft(const SoftFrame& cost, double minFieldMargin = kDefaultFieldMarginNats);
+
+// Turn one frame's raw per-second costs into calibrated negative
+// log-likelihoods (nats), lowest hypothesis 0 in every second:
+//  - scale: raw costs are squared errors; dividing by 2 sigma^2, with sigma^2
+//    estimated from this frame's own median best cost, puts frames with
+//    different noise on one scale, so a joint decode weighs each minute by
+//    how clean it was and log-likelihoods simply add across minutes. (The
+//    old rule asked for a margin of 2 sigma in raw units, which is 1/sigma in
+//    nats: noisier minutes needed LESS evidence.)
+//  - outliers: on live high-latitude recordings about 1 data bit in 80 was
+//    wrong with a raw ratio far beyond what Gaussian noise allows (static
+//    crashes, carrier-fade spikes), so no single second may count for more
+//    than -ln(kOutlierProb), about 4.6 nats.
+// Checked on 1248 data bits from 24 live frames (Palmer AK, 5 and 10 MHz,
+// 2026-11-05) against the known transmitted time code: after scaling, the
+// raw ratio needs no further gain (fitted slope 1.03). A 0-versus-1 bias
+// term also fitted on those frames (raw evidence favoured "1") but was not
+// stable between recordings and caused wrong hours in simulated flutter, so
+// it is deliberately not applied.
+SoftFrame calibrateSoftFrame(const SoftFrame& raw);
+constexpr double kOutlierProb = 0.01;
 
 // Joint maximum-likelihood decode of 2 or more consecutive frames (oldest
 // first) that carry consecutive UTC minutes; the result is the newest frame's
@@ -73,7 +99,7 @@ DecodeResult decodeFrameSoft(const SoftFrame& cost, double minFieldMargin = 0.25
 // over all frames (with the hour/day/year carries in between); DUT1, leap
 // second warning and DST bits are assumed unchanged over the span. Validity
 // rules are the same as decodeFrameSoft, applied per frame for structure.
-DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& frames, double minFieldMargin = 0.25);
+DecodeResult decodeFramesSoft(const std::vector<SoftFrame>& frames, double minFieldMargin = kDefaultFieldMarginNats);
 
 // Decode a full frame. Rejects frames with bad markers, a pulse in second 0,
 // non-zero unused bits, impossible BCD digits, or out-of-range fields.
