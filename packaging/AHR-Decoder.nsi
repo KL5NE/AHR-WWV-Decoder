@@ -1,4 +1,4 @@
-Unicode True
+﻿Unicode True
 ManifestDPIAware true
 !include "MUI2.nsh"
 !include "x64.nsh"
