@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 """Static Windows PE loader diagnostics and FFmpeg runtime consistency checks.
 
 Models the default SafeDllSearchMode sequence: application directory,

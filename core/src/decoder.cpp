@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 #include "ahrwwv/decoder.h"
 
 #include <algorithm>
@@ -275,7 +277,11 @@ constexpr double kEdgeAlpha = 0.05;      // fine timing loop gain (~40 s averagi
 // single-bit field (leap second, DST) from one minute reaches this only when
 // its second is unambiguous.
 constexpr double kStrongDecodeNats = 4.5;
-constexpr double kConfidenceFullNats = 8.0; // margin shown as confidence 1.00
+constexpr double kConfidenceFullNats = 8.0;
+// The sample-clock readout is shown as a number once its 1-sigma error is at
+// most this; before that it is "measuring". A sound card is typically 50-200
+// ppm off and settles fast; an SDR crystal within 1-2 ppm needs ~10 minutes.
+constexpr double kPpmSettledSigma = 0.5; // margin shown as confidence 1.00
 
 } // namespace
 
@@ -324,6 +330,7 @@ struct WwvDecoder::Impl {
 
     std::deque<std::pair<double, double>> phaseHist;
     double ppm = 0; bool ppmValid = false;
+    double dispPpm = 0, dispPpmSigma = 0; bool dispPpmValid = false;
 
     struct Hist { SecondSymbol s; std::array<double, 4> cost; };
     std::deque<Hist> hist;
@@ -347,6 +354,12 @@ struct WwvDecoder::Impl {
     uint64_t timeBasisLastFrameId = 0;
     uint64_t confirmationPreviousLastFrameId = 0;
     uint64_t confirmationCurrentFirstFrameId = 0;
+    // Station flags (DUT1, LSW, DST) of recent accepted decodes, with the raw
+    // minutes each decode used; a value is confirmed by two disjoint decodes.
+    struct FlagObs { int dut1; bool lsw, dst1, dst2; uint64_t firstId, lastId; };
+    std::deque<FlagObs> flagObs;
+    bool flagsConfirmed = false;
+    FlagObs confirmedFlags{0, false, false, false, 0, 0};
     // Up to five consecutive minutes are read together. Faded minutes are
     // weak but not wrong; the date fields need more than three of them under
     // high-latitude fading (live 10 MHz, Palmer AK, 2026-11-05).
@@ -489,6 +502,7 @@ struct WwvDecoder::Impl {
                 if (href <= 0 || jump) { href = hi - lo; hrefHist.clear(); }
                 if (jump) { P = 0; pUpdates = 0; }
                 phaseHist.clear();
+                dispPpmValid = false;
                 if (!scheduling) {
                     nextB = phase + std::ceil(ring.front().t - phase);
                     scheduling = true;
@@ -535,6 +549,53 @@ struct WwvDecoder::Impl {
         }
         double den = n * sxx - sx * sx;
         if (den > 0) { ppm = (n * sxy - sx * sy) / den * 1e6; ppmValid = true; }
+        robustPpmFit();
+    }
+
+    // The value shown to people: the same trend, refitted without edges that
+    // jumped (fading path changes, impulses), with an honest 1-sigma error.
+    // Edge residuals are correlated over seconds (ionospheric path wander),
+    // so the error is inflated by the lag-1 autocorrelation of the residuals.
+    void robustPpmFit()
+    {
+        const size_t n = phaseHist.size();
+        if (n < 30) return;
+        const double t0 = phaseHist.front().first, y0 = phaseHist.front().second;
+        std::vector<double> xs(n), ys(n);
+        for (size_t i = 0; i < n; i++) { xs[i] = phaseHist[i].first - t0; ys[i] = phaseHist[i].second - y0; }
+        std::vector<char> use(n, 1);
+        double a = 0, b = 0, sxxc = 0;
+        int m = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            double sx = 0, sy = 0; m = 0;
+            for (size_t i = 0; i < n; i++) if (use[i]) { sx += xs[i]; sy += ys[i]; m++; }
+            if (m < 20) return;
+            double mx = sx / m, my = sy / m, sxy = 0;
+            sxxc = 0;
+            for (size_t i = 0; i < n; i++) if (use[i]) { sxxc += (xs[i] - mx) * (xs[i] - mx); sxy += (xs[i] - mx) * (ys[i] - my); }
+            if (sxxc <= 0) return;
+            b = sxy / sxxc; a = my - b * mx;
+            std::vector<double> ar;
+            for (size_t i = 0; i < n; i++) ar.push_back(std::fabs(ys[i] - (a + b * xs[i])));
+            std::vector<double> sorted = ar;
+            std::nth_element(sorted.begin(), sorted.begin() + n / 2, sorted.end());
+            double mad = 1.4826 * sorted[n / 2];
+            double lim = std::max(3.5 * mad, 0.0005);
+            if (pass == 0) for (size_t i = 0; i < n; i++) use[i] = ar[i] <= lim;
+        }
+        double ss = 0, lag = 0, prev = 0; bool havePrev = false; int nl = 0;
+        for (size_t i = 0; i < n; i++) if (use[i]) {
+            double r = ys[i] - (a + b * xs[i]);
+            ss += r * r;
+            if (havePrev) { lag += r * prev; nl++; }
+            prev = r; havePrev = true;
+        }
+        double var = ss / std::max(1, m - 2);
+        double rho = (nl > 0 && ss > 0) ? std::clamp((lag / nl) / (ss / m), 0.0, 0.95) : 0.0;
+        double inflate = std::sqrt((1.0 + rho) / (1.0 - rho));
+        dispPpm = b * 1e6;
+        dispPpmSigma = std::sqrt(var / sxxc) * inflate * 1e6;
+        dispPpmValid = true;
     }
 
     double minCarrier(double a, double b) const
@@ -884,6 +945,7 @@ struct WwvDecoder::Impl {
             lastGoodT = b59;
             lastTc = r.tc;
             frameFailures = 0;
+            noteFlags(r.tc, firstId, lastId);
             ev.type = DecoderEvent::Type::FrameDecoded;
             if (verified >= 2) {
                 ev.utcAtBoundary = M + 59;
@@ -895,10 +957,10 @@ struct WwvDecoder::Impl {
             bool consistent = false;
             if (havePred) {
                 TimeCode pt = unixToTimeCode(int64_t(predMinute));
-                pt.dut1Tenths = lastTc.dut1Tenths;
-                pt.leapSecondWarning = lastTc.leapSecondWarning;
-                pt.dst1 = lastTc.dst1;
-                pt.dst2 = lastTc.dst2;
+                pt.dut1Tenths = flagsConfirmed ? confirmedFlags.dut1 : lastTc.dut1Tenths;
+                pt.leapSecondWarning = flagsConfirmed ? confirmedFlags.lsw : lastTc.leapSecondWarning;
+                pt.dst1 = flagsConfirmed ? confirmedFlags.dst1 : lastTc.dst1;
+                pt.dst2 = flagsConfirmed ? confirmedFlags.dst2 : lastTc.dst2;
                 Frame pf = encodeFrame(pt);
                 // excess: how much worse the expected frame fits than the best
                 // per-second guesses; support: how strongly the seconds back the
@@ -946,6 +1008,24 @@ struct WwvDecoder::Impl {
         events.push_back(ev);
     }
 
+    // Record an accepted decode's station flags; confirm them when an older
+    // accepted decode over disjoint raw minutes carried the same values.
+    void noteFlags(const TimeCode& tc, uint64_t firstId, uint64_t lastId)
+    {
+        FlagObs o{tc.dut1Tenths, tc.leapSecondWarning, tc.dst1, tc.dst2, firstId, lastId};
+        auto same = [](const FlagObs& a, const FlagObs& b) {
+            return a.dut1 == b.dut1 && a.lsw == b.lsw && a.dst1 == b.dst1 && a.dst2 == b.dst2;
+        };
+        for (const auto& old : flagObs)
+            if (same(old, o) && disjointRawMinuteWindows(old.firstId, old.lastId, firstId, lastId)) {
+                confirmedFlags = o;
+                flagsConfirmed = true;
+                break;
+            }
+        flagObs.push_back(o);
+        while (flagObs.size() > 12) flagObs.pop_front();
+    }
+
     void updateClockOffset(double b, double utcB)
     {
         if (!havePc) return;
@@ -986,6 +1066,9 @@ struct WwvDecoder::Impl {
         st.timingJitter = std::sqrt(edgeVar);
         st.sampleClockPpm = ppm;
         st.sampleClockPpmValid = ppmValid;
+        st.sampleClockPpmMeasured = dispPpmValid ? dispPpm : 0.0;
+        st.sampleClockPpmSigma = dispPpmValid ? dispPpmSigma : 0.0;
+        st.sampleClockPpmSettled = dispPpmValid && dispPpmSigma <= kPpmSettledSigma;
         st.tick1000 = f1000;
         st.tick1200 = f1200;
         // Tick energy above the noise reference; a station counts as heard when
@@ -998,6 +1081,11 @@ struct WwvDecoder::Impl {
         else st.station = h1 && h2 ? StationId::Both : h1 ? StationId::WWV : h2 ? StationId::WWVH : StationId::Unknown;
         st.haveTime = haveTime;
         st.lastTimeCode = lastTc;
+        st.flagsConfirmed = flagsConfirmed;
+        st.confirmedDut1Tenths = confirmedFlags.dut1;
+        st.confirmedLsw = confirmedFlags.lsw;
+        st.confirmedDst1 = confirmedFlags.dst1;
+        st.confirmedDst2 = confirmedFlags.dst2;
         st.verifiedFrames = verified;
         st.confirmationPreviousLastFrameId = confirmationPreviousLastFrameId;
         st.confirmationCurrentFirstFrameId = confirmationCurrentFirstFrameId;

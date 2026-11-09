@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 # Adds the AHR WWV/WWVH Time Decoder hook to an SDRangel v8.0.0 source tree.
 #
 #   cmake -DSDRANGEL_SOURCE_DIR=<path to sdrangel> -P apply_integration.cmake

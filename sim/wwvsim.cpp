@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 #include "wwvsim.h"
 #include <cmath>
 
@@ -50,6 +52,7 @@ double WwvSim::modulation(int s, double utc)
     if (minute != m_cacheMinute[s]) {
         TimeCode tc = unixToTimeCode(minute);
         tc.dut1Tenths = m_c.dut1Tenths;
+        for (auto& o : m_c.dut1ByMinute) if (o.first == minute) tc.dut1Tenths = o.second;
         tc.leapSecondWarning = m_c.lsw;
         tc.dst1 = m_c.dst1;
         tc.dst2 = m_c.dst2;

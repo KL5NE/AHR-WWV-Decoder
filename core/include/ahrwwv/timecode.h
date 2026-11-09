@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // AHR WWV/WWVH Time Decoder - portable time code layer (no Qt, no SDRangel).
 // Frame format per NIST SP 250-67 (WWV/WWVH 100 Hz IRIG-H style time code).
 #pragma once

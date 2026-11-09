@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // wwv_make_sdriq: write a synthetic WWV/WWVH I/Q recording in SDRangel's
 // .sdriq format, for replay with SDRangel's "File input" device. This lets the
 // plugin be exercised inside SDRangel without radio hardware.

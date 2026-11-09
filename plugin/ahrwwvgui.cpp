@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 ///////////////////////////////////////////////////////////////////////////////////
 // AHR WWV/WWVH Time Decoder - SDRangel receive channel plugin                   //
 // Copyright (C) 2026 KL5NE, Alaska HamRadio                                     //
@@ -401,12 +402,24 @@ void AHRWWVGUI::updateStatusPanels()
     ui->lastFrame->setText(QString("Last frame: %1").arg(m_lastFrameText));
 
     // Time code fields (only from accepted frames)
-    if (st.haveTime)
+    // DUT1, leap second and DST only once two independent decodes agree:
+    // one faded second can flip one of these bits in a single minute.
+    if (st.haveTime && st.flagsConfirmed)
     {
-        const ahrwwv::TimeCode& tc = st.lastTimeCode;
+        ahrwwv::TimeCode tc = st.lastTimeCode;
+        tc.dut1Tenths = st.confirmedDut1Tenths;
+        tc.leapSecondWarning = st.confirmedLsw;
+        tc.dst1 = st.confirmedDst1;
+        tc.dst2 = st.confirmedDst2;
         ui->dut1Value->setText(QString("%1%2 s").arg(tc.dut1Tenths >= 0 ? "+" : "-").arg(std::abs(tc.dut1Tenths) / 10.0, 0, 'f', 1));
         ui->dstValue->setText(ahrwwv::dstStateName(ahrwwv::dstState(tc)));
         ui->lswValue->setText(tc.leapSecondWarning ? "Yes (leap second at end of month)" : "No");
+    }
+    else if (st.haveTime)
+    {
+        ui->dut1Value->setText("checking...");
+        ui->dstValue->setText("checking...");
+        ui->lswValue->setText("checking...");
     }
     else
     {
@@ -482,8 +495,12 @@ void AHRWWVGUI::updateStatusPanels()
 
     QString timing = QString("jitter %1 ms").arg(st.timingJitter * 1e3, 0, 'f', 1);
 
-    if (st.sampleClockPpmValid) {
-        timing += QString(", SDR clock %1%2 ppm").arg(st.sampleClockPpm >= 0 ? "+" : "").arg(st.sampleClockPpm, 0, 'f', 1);
+    if (st.sampleClockPpmSettled) {
+        // Positive = the SDR's sample clock runs fast against UTC.
+        timing += QString(", SDR clock %1%2 ±%3 ppm").arg(st.sampleClockPpmMeasured >= 0 ? "+" : "")
+            .arg(st.sampleClockPpmMeasured, 0, 'f', 1).arg(st.sampleClockPpmSigma, 0, 'f', 1);
+    } else if (st.sampleClockPpmValid) {
+        timing += QString(", SDR clock measuring...");
     }
 
     if (st.haveTime) {

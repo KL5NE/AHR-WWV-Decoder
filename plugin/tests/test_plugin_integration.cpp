@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 KL5NE, Alaska HamRadio, and AHR-Decoder contributors
 // AHR WWV/WWVH Time Decoder - plugin integration tests.
 //
 // Built inside the SDRangel tree (-DAHRWWV_BUILD_PLUGIN_TESTS=ON) and linked
