@@ -1,0 +1,109 @@
+name: AHR-Decoder beta installer (pinned tested DLL)
+on:
+  pull_request:
+    paths: ['packaging/**', '.github/workflows/ahr-decoder-beta-installer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify completed CI for exact tested decoder commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $expected = '0b0cb1858ec808259d7b7e1b4fae43b9e61e0943'
+          foreach ($run in @(42299074954,42299074971)) {
+            $record = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$run" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $record.head_sha -ne $expected -or $record.conclusion -ne 'success') { throw "Pinned run $run not verified" }
+          }
+          "TESTED_SHA=$expected" | Out-File $env:GITHUB_ENV -Append
+      - name: Install pinned NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --version=3.12.0 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'NSIS 3.12.0 install failed' }
+      - name: Fetch and validate exact tested Windows DLL
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force pinned,stage,output | Out-Null
+          gh run download 42299074954 -n AHR-WWV-v8.0.0-win64-DLL-test -D pinned
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned DLL artifact fetch failed' }
+          $z = @(Get-ChildItem pinned -Filter '*.zip')
+          if ($z.Count -ne 1) { throw 'Expected one DLL archive' }
+          Expand-Archive $z[0].FullName stage
+          $dll = (Get-FileHash stage/ahrwwvtimedecoder.dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (-not (Get-Content stage/SHA256SUMS.txt -Raw).ToLowerInvariant().StartsWith($dll)) { throw 'Original DLL hash mismatch' }
+          Copy-Item LICENSE stage/LICENSE
+          Copy-Item packaging/install-plugin.ps1 stage/install-plugin.ps1
+          "DLL_HASH=$dll" | Out-File $env:GITHUB_ENV -Append
+      - name: Fingerprint ONLY authenticated official SDRangel v8.0.0 Windows release
+        shell: pwsh
+        run: |
+          $asset = 'sdrangel-8.0.0-win64.exe'
+          curl.exe --fail --location --retry 3 --output $asset 'https://github.com/f4exb/sdrangel/releases/download/v8.0.0/sdrangel-8.0.0-win64.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Official SDRangel release download failed' }
+          $expected = '17e1cb158d0e263ed713e76930babce5458b7954a53ed0213770f6f37c66d7c2'
+          if ((Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Official release checksum mismatch' }
+          7z x $asset -oofficial-host -y -bd | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Official installer extraction failed' }
+          $exe = @(Get-ChildItem official-host -Recurse -File | Where-Object Name -ieq 'sdrangel.exe')
+          if ($exe.Count -ne 1) { throw "Cannot derive unique official host fingerprint ($($exe.Count) matches)" }
+          $hostHash = (Get-FileHash $exe[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content stage/approved-host.txt $hostHash -NoNewline
+          "HOST_HASH=$hostHash" | Out-File $env:GITHUB_ENV -Append
+      - name: Package exact DLL as unsigned NSIS beta and manual zip
+        shell: pwsh
+        run: |
+          $version = (Get-Content packaging/VERSION.txt -Raw).Trim()
+          $stage = (Resolve-Path stage).Path.Replace('\','/')
+          $outputDir = (Resolve-Path output).Path.Replace('\','/')
+          $file = "AHR-Decoder-$version-SDRangel-8.0.0-x64-Setup.exe"
+          $nsis = 'C:\Program Files (x86)\NSIS\makensis.exe'
+          if (!(Test-Path $nsis)) { throw 'Pinned makensis missing' }
+          & $nsis "/DSTAGE=$stage" "/DOUTPUT=$outputDir/$file" "/DAPPVERSION=$version" "/DDLLHASH=$env:DLL_HASH" "/DBUILDCOMMIT=$env:TESTED_SHA" packaging/AHR-Decoder.nsi
+          if ($LASTEXITCODE -ne 0) { throw 'NSIS compile failed' }
+          @"
+          AHR-Decoder $version — WWV/WWVH time decoder for official SDRangel 8.0.0 x64.
+          BETA / UNSIGNED. Windows SmartScreen may warn; verify SHA256SUMS.txt first.
+          Close SDRangel and back up an existing AHR DLL before manual installation.
+          For manual install copy ahrwwvtimedecoder.dll to the SDRangel plugins\ folder.
+          This DLL never sets the Windows clock.
+          Built DLL commit $env:TESTED_SHA
+          DLL run: https://github.com/KL5NE/AHR-WWV-Decoder/actions/runs/42299074954
+          Source: https://github.com/KL5NE/AHR-WWV-Decoder
+          "@ | Set-Content output/README.txt
+          Copy-Item stage/ahrwwvtimedecoder.dll output/ahrwwvtimedecoder.dll
+          Copy-Item LICENSE output/LICENSE
+          Compress-Archive output/README.txt,output/ahrwwvtimedecoder.dll,output/LICENSE "output/AHR-Decoder-$version-SDRangel-8.0.0-x64-Manual.zip" -Force
+          Remove-Item output/README.txt,output/ahrwwvtimedecoder.dll,output/LICENSE
+          [ordered]@{version=$version;dllCommit=$env:TESTED_SHA;dllRun=42299074954;coreRun=42299074971;dllSha256=$env:DLL_HASH;officialHostAssetSha256='17e1cb158d0e263ed713e76930babce5458b7954a53ed0213770f6f37c66d7c2';officialHostExeSha256=$env:HOST_HASH;vmAcceptance='NOT VERIFIED'} | ConvertTo-Json | Set-Content output/PROVENANCE.json
+          Get-ChildItem output -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content output/SHA256SUMS.txt
+      - name: Disposable Windows runner VM acceptance (official v8.0.0 host)
+        shell: pwsh
+        run: |
+          & packaging/vm-acceptance.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'VM safety tests failed' }
+          Get-ChildItem output -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content output/SHA256SUMS.txt
+      - name: Upload VM test report even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHR-Decoder-beta-VM-test-report
+          path: output/VM-ACCEPTANCE.txt
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload unsigned beta for disposable-VM evaluation (NOT production)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHR-Decoder-0.9.0-beta-VM-UNVERIFIED
+          path: output/*
+          if-no-files-found: error
+          retention-days: 30
