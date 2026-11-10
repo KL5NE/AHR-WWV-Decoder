@@ -1,0 +1,18 @@
+# Real off-air regression: KL5NE, Palmer AK, 15 MHz WWV+WWVH, 2026-11-10 19:25 UTC.
+# Usage: cmake -DDECODER=<path to wwv_decode_wav> -DWAV=<path to wav> -P check_palmer_15mhz.cmake
+execute_process(COMMAND "${DECODER}" "${WAV}" OUTPUT_VARIABLE out ERROR_VARIABLE err RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "decoder failed (${rc}): ${err}")
+endif()
+foreach(m 19:31 19:32 19:33)
+  if(NOT out MATCHES "FRAME accepted  2026-11-10 \\(day 314\\) ${m} UTC")
+    message(FATAL_ERROR "expected accepted frame 2026-11-10 ${m} UTC\n${out}")
+  endif()
+endforeach()
+string(REGEX MATCHALL "FRAME accepted[^\n]*" acc "${out}")
+foreach(line IN LISTS acc)
+  if(NOT line MATCHES "2026-11-10 \\(day 314\\) 19:3[1-3] UTC")
+    message(FATAL_ERROR "wrong frame accepted: ${line}")
+  endif()
+endforeach()
+message(STATUS "palmer 15 MHz real recording: 19:31-19:33 UTC accepted, no wrong frames")
