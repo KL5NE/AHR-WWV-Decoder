@@ -763,7 +763,11 @@ struct WwvDecoder::Impl {
         if (utcAt(ss.boundaryTime, utc)) {
             // DECODED can be a confidently wrong hypothesis. Never label
             // a second as UTC or compare it to the PC clock until VERIFIED.
-            if (verified >= 2) {
+            // HOLDOVER is an estimate, not a trusted clock observation.
+            // Gate each second independently; stale verified frames alone
+            // cannot authorize a UTC-labelled event or clock-offset update.
+            if (verified >= 2 && secLocked && frameLocked
+                && lastSampleTime - lastGoodT < 125.0) {
                 ev.utcAtBoundary = std::round(utc);
                 ev.haveUtc = true;
                 updateClockOffset(ss.boundaryTime, ev.utcAtBoundary);
@@ -1114,7 +1118,8 @@ struct WwvDecoder::Impl {
         double unc = std::sqrt(sb * sb + cfg.propagationUncertainty * cfg.propagationUncertainty);
         if (s == DecoderState::Holdover) unc += cfg.sampleClockPpmUncertainty * 1e-6 * st.holdoverAge;
         st.timeUncertainty = haveTime ? unc : 0.0;
-        st.haveClockOffset = havePc && offAvgInit && haveTime && verified >= 2;
+        // The offset is trustworthy only while VERIFIED, never in HOLDOVER.
+        st.haveClockOffset = havePc && offAvgInit && s == DecoderState::Verified;
         st.clockOffset = offAvg;
         st.clockOffsetUncertainty = std::sqrt(unc * unc + cfg.hostTimestampUncertainty * cfg.hostTimestampUncertainty);
 
@@ -1205,7 +1210,12 @@ double WwvDecoder::currentSampleTime() const { return d->lastSampleTime; }
 // The public UTC API must not expose a provisional DECODED hypothesis.
 // Internal Impl::utcAt remains available solely for comparing candidate
 // frames, never for a trusted clock, PC offset or time-labelled events.
-bool WwvDecoder::utcAt(double t, double& utc) const { return d->verified >= 2 && d->utcAt(t, utc); }
+bool WwvDecoder::utcAt(double t, double& utc) const
+{
+    // HOLDOVER may retain a predicted time internally, but callers must not
+    // mistake that prediction for a fresh, verified atomic time observation.
+    return d->st.state == DecoderState::Verified && d->verified >= 2 && d->utcAt(t, utc);
+}
 
 void WwvDecoder::setNextSampleTimestamp(double pc)
 {
