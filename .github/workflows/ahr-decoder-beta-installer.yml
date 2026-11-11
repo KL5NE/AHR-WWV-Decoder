@@ -17,12 +17,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $expected = '52517ba4f82bc7a18ddc3ab3b0d8a567c60e694d'
+          # GitHub reports PR head SHA as the Actions run head_sha, while
+          # actions/checkout checks out the tested pull/17/merge tree.
+          $runHead = 'd9fb2f75d777d114314556a02f4e36636c456a34'
+          $testedTree = '52517ba4f82bc7a18ddc3ab3b0d8a567c60e694d'
           foreach ($run in @(43104513833,43104513923,43104514184)) {
             $record = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$run" | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0 -or $record.head_sha -ne $expected -or $record.conclusion -ne 'success') { throw "Pinned run $run not verified" }
+            if ($LASTEXITCODE -ne 0) { throw "Unable to read pinned Actions run $run" }
+            Write-Host "Run $run: head_sha=$($record.head_sha), conclusion=$($record.conclusion), event=$($record.event)"
+            if ($record.head_sha -notin @($runHead, $testedTree) -or $record.conclusion -ne 'success' -or $record.event -ne 'pull_request') { throw "Pinned run $run not verified" }
           }
-          "TESTED_SHA=$expected" | Out-File $env:GITHUB_ENV -Append
+          "TESTED_SHA=$testedTree" | Out-File $env:GITHUB_ENV -Append
       - name: Install pinned NSIS
         shell: pwsh
         run: |
