@@ -24,7 +24,7 @@ jobs:
           foreach ($run in @(43104513833,43104513923,43104514184)) {
             $record = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$run" | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0) { throw "Unable to read pinned Actions run $run" }
-            Write-Host "Run $run: head_sha=$($record.head_sha), conclusion=$($record.conclusion), event=$($record.event)"
+            Write-Host "Run ${run}: head_sha=$($record.head_sha), conclusion=$($record.conclusion), event=$($record.event)"
             if ($record.head_sha -notin @($runHead, $testedTree) -or $record.conclusion -ne 'success' -or $record.event -ne 'pull_request') { throw "Pinned run $run not verified" }
           }
           "TESTED_SHA=$testedTree" | Out-File $env:GITHUB_ENV -Append
