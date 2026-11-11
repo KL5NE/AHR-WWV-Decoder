@@ -14,6 +14,9 @@ ManifestDPIAware true
 !ifndef BUILDCOMMIT
   !error "Pass /DBUILDCOMMIT=... to makensis"
 !endif
+!ifndef BUILDRUN
+  !error "Pass /DBUILDRUN=... to makensis"
+!endif
 !define PRODUCT "AHR-Decoder"
 !ifndef APPVERSION
   !error "Pass /DAPPVERSION=... from packaging/VERSION.txt"
@@ -65,7 +68,7 @@ Section "AHR-Decoder plugin" SecPlugin
   FileWrite $R9 "Payload files extracted; invoking host compatibility check $\r$\n"
   FileClose $R9
   DetailPrint "Checking approved official SDRangel 8.0.0 host and plugin SHA-256..."
-  nsExec::ExecToStack 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-plugin.ps1" -Action Install -HostFolder "$INSTDIR" -PayloadDll "$PLUGINSDIR\ahrwwvtimedecoder.dll" -ApprovedHostHash "$PLUGINSDIR\approved-host.txt" -PayloadHash "${DLLHASH}" -Version "${APPVERSION}" -BuildCommit "${BUILDCOMMIT}" -BuildRun "42320214210"'
+  nsExec::ExecToStack 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-plugin.ps1" -Action Install -HostFolder "$INSTDIR" -PayloadDll "$PLUGINSDIR\ahrwwvtimedecoder.dll" -ApprovedHostHash "$PLUGINSDIR\approved-host.txt" -PayloadHash "${DLLHASH}" -Version "${APPVERSION}" -BuildCommit "${BUILDCOMMIT}" -BuildRun "${BUILDRUN}"'
   Pop $0
   Pop $1
   FileOpen $R9 "$TEMP\\AHR-Decoder-NSIS-Trace.log" a
