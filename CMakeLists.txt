@@ -58,4 +58,10 @@ if(AHRWWV_BUILD_TESTS)
     enable_testing()
     add_test(NAME ahrwwv_tests COMMAND ahrwwv_tests)
     add_test(NAME ahrwwv_capi_tests COMMAND ahrwwv_capi_tests)
+    # Fixture: real KL5NE off-air 15 MHz IQ (required for minute-lock regression).
+    add_test(NAME palmer_15mhz_real_recording
+             COMMAND ${CMAKE_COMMAND}
+                     -DDECODER=$<TARGET_FILE:wwv_decode_wav>
+                     -DWAV=${CMAKE_CURRENT_SOURCE_DIR}/tests/real/palmer_15mhz_2026-11-10_4k.wav
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/real/check_palmer_15mhz.cmake)
 endif()

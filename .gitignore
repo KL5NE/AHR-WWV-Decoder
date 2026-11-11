@@ -16,6 +16,7 @@ cmake-build-*/
 # Avoid committing capture recordings and large binary files
 *.iq
 *.wav
+!tests/real/palmer_15mhz_2026-11-10_4k.wav
 *.mp4
 *.mp3
 *.raw
