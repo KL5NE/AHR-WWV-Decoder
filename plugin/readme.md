@@ -39,7 +39,7 @@ The big clock shows decoded UTC, as transmitted. Your receive delay (about 10–
 | SEARCHING / SECOND SYNC / FRAME SYNC | No time yet. The clock shows `--:--:--`. |
 | DECODED (unverified) | One good minute frame. Shown in yellow until a second frame agrees. |
 | VERIFIED | Two independent frames agree. Shown in green. |
-| HOLDOVER m:ss | The signal faded after a verified time. The time is **predicted** from the receiver's sample clock, and the uncertainty grows. Shown in orange. |
+| HOLDOVER m:ss | The signal faded after a verified time. The internal decoder may predict time, but the **public clock is blank (`--:--:--`) and PC-clock comparison is unavailable** until fresh verification. Shown in orange. |
 | NO DATA / DISABLED | No samples arriving (device stopped) or decoder off. |
 
 **PC clock** is a read-only estimate of the computer clock against decoded UTC. It removes the path delay and your latency correction. It is approximate: SDR and SDRangel buffering can add tens of milliseconds that the plugin cannot measure.

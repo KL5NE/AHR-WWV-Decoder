@@ -268,6 +268,13 @@ constexpr double kUnlockContrast = 0.10;
 constexpr double kMinPulseGain = 0.25;  // weakest faded pulse level modelled
 constexpr double kMaxPulseGain = 1.5;
 constexpr size_t kHrefPulses = 31;
+// Weakest pulse level (window A, relative to the median pulse) still read as a
+// pulse. Live 15 MHz at Palmer AK (2026-11-10) fades up to 10x from one second
+// to the next with almost no second-to-second correlation; a fixed template of
+// 1.0 threw deeply faded but clean pulses away as "no pulse".
+constexpr double kPulseFloorA = 0.35;
+constexpr double kPulseFloorSigmas = 6.0; // ...raised in noise to this many window-A sigmas
+constexpr double kMaxPulseFloorA = 0.6;
 constexpr double kMinSymbolConf = 0.15;  // below this a second is shown as "?"
 constexpr double kEdgeAlpha = 0.05;      // fine timing loop gain (~40 s averaging)
 // Frame margins are log-likelihood ratios in nats (calibrateSoftFrame).
@@ -667,11 +674,18 @@ struct WwvDecoder::Impl {
         // by it. The A term itself keeps the fixed template, so the decision
         // between "no pulse" and "pulse" is unchanged.
         double g = std::clamp(lv[0], kMinPulseGain, kMaxPulseGain);
+        // Window A's pulse template follows a faded pulse down to a floor set
+        // by this second's own noise, so "faded pulse" and "no pulse" are told
+        // apart by the noise, not by the long-term pulse level.
+        double nA = std::max(1.0, (kWinA[1] - kWinA[0]) * 2.0 * 1.03 * cfg.lowpassHz);
+        double slA = std::sqrt(sn * sn / (r * r) / nA);
+        double aFloor = std::clamp(kPulseFloorSigmas * slA, kPulseFloorA, kMaxPulseFloorA);
+        double gA = std::clamp(lv[0], aFloor, 1.0);
         std::array<double, 4> cost;
         for (int h = 0; h < 4; h++) {
             cost[h] = 0;
             for (int i = 0; i < 3; i++) {
-                double scale = (i == 0 || h == 0) ? 1.0 : g;
+                double scale = h == 0 ? 1.0 : (i == 0 ? gA : g);
                 double e = lv[i] - scale * kExpected[h][i];
                 cost[h] += wgt[i] * e * e;
             }
@@ -749,7 +763,11 @@ struct WwvDecoder::Impl {
         if (utcAt(ss.boundaryTime, utc)) {
             // DECODED can be a confidently wrong hypothesis. Never label
             // a second as UTC or compare it to the PC clock until VERIFIED.
-            if (verified >= 2) {
+            // HOLDOVER is an estimate, not a trusted clock observation.
+            // Gate each second independently; stale verified frames alone
+            // cannot authorize a UTC-labelled event or clock-offset update.
+            if (verified >= 2 && secLocked && frameLocked
+                && lastSampleTime - lastGoodT < 125.0) {
                 ev.utcAtBoundary = std::round(utc);
                 ev.haveUtc = true;
                 updateClockOffset(ss.boundaryTime, ev.utcAtBoundary);
@@ -763,6 +781,10 @@ struct WwvDecoder::Impl {
     {
         if (p == 0) return h.cost[0];
         if (isMarkerPos(p)) return h.cost[3];
+        // NIST unused positions are always 0 (WWVH sends 1 at 47). With a
+        // marker every 10 s, they are what separates the six 10-second slots
+        // when deep fading leaves the single :00 "hole" too weak on its own.
+        if (isUnusedPos(p) && p != 47) return h.cost[1];
         return std::min(h.cost[1], h.cost[2]);
     }
 
@@ -1096,7 +1118,8 @@ struct WwvDecoder::Impl {
         double unc = std::sqrt(sb * sb + cfg.propagationUncertainty * cfg.propagationUncertainty);
         if (s == DecoderState::Holdover) unc += cfg.sampleClockPpmUncertainty * 1e-6 * st.holdoverAge;
         st.timeUncertainty = haveTime ? unc : 0.0;
-        st.haveClockOffset = havePc && offAvgInit && haveTime && verified >= 2;
+        // The offset is trustworthy only while VERIFIED, never in HOLDOVER.
+        st.haveClockOffset = havePc && offAvgInit && s == DecoderState::Verified;
         st.clockOffset = offAvg;
         st.clockOffsetUncertainty = std::sqrt(unc * unc + cfg.hostTimestampUncertainty * cfg.hostTimestampUncertainty);
 
@@ -1187,7 +1210,12 @@ double WwvDecoder::currentSampleTime() const { return d->lastSampleTime; }
 // The public UTC API must not expose a provisional DECODED hypothesis.
 // Internal Impl::utcAt remains available solely for comparing candidate
 // frames, never for a trusted clock, PC offset or time-labelled events.
-bool WwvDecoder::utcAt(double t, double& utc) const { return d->verified >= 2 && d->utcAt(t, utc); }
+bool WwvDecoder::utcAt(double t, double& utc) const
+{
+    // HOLDOVER may retain a predicted time internally, but callers must not
+    // mistake that prediction for a fresh, verified atomic time observation.
+    return d->st.state == DecoderState::Verified && d->verified >= 2 && d->utcAt(t, utc);
+}
 
 void WwvDecoder::setNextSampleTimestamp(double pc)
 {
@@ -1205,7 +1233,12 @@ std::vector<DecoderEvent> WwvDecoder::takeEvents()
 
 void WwvDecoder::processIQ(const std::complex<float>* iq, size_t n)
 {
-    d->normalize = true;
+    // No division by the instantaneous carrier: under selective fading the
+    // carrier can null while the 100 Hz sidebands stay up (live 15 MHz,
+    // Palmer AK, 2026-11-10), and the division blew single seconds up 10x and
+    // hid the minute. Pulse levels are referenced to the median pulse (href)
+    // and each second's own noise instead, as on the audio path.
+    d->normalize = false;
     for (size_t i = 0; i < n; i++) {
         // +/-1.6 kHz channel filter: passes the 100 Hz code and the 1000/1200 Hz
         // ticks, keeps wideband noise out of the envelope detector.
