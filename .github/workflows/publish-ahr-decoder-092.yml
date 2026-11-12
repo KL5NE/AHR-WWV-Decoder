@@ -24,7 +24,8 @@ jobs:
           test "$GITHUB_REF" = 'refs/heads/installer/ahr-decoder-0.9.1-beta-c1'
           # Release commit must retain EXACT decoder core and SDRangel plugin
           # from tested holdover-guard PR head; packaging/docs may differ.
-          git diff --exit-code d9fb2f75d777d114314556a02f4e36636c456a34 HEAD -- core/ plugin/
+          # Ignore documentation-only plugin README change; preserve all compiled decoder sources.
+          git diff --exit-code d9fb2f75d777d114314556a02f4e36636c456a34 HEAD -- core/ plugin/ ':(exclude)plugin/readme.md'
           test "$(cat packaging/VERSION.txt)" = '0.9.2-beta'
       - name: Verify the four approved Actions runs and recorded source
         env:
