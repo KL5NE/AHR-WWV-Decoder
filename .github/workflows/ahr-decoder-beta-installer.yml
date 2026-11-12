@@ -17,12 +17,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $expected = 'bec2021712c1efa8ae92c8688bc35cb9d548f56e'
-          foreach ($run in @(42320214210,42320214256,42320214538)) {
+          # GitHub reports PR head SHA as the Actions run head_sha, while
+          # actions/checkout checks out the tested pull/17/merge tree.
+          $runHead = 'd9fb2f75d777d114314556a02f4e36636c456a34'
+          $testedTree = '52517ba4f82bc7a18ddc3ab3b0d8a567c60e694d'
+          foreach ($run in @(43104513833,43104513923,43104514184)) {
             $record = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$run" | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0 -or $record.head_sha -ne $expected -or $record.conclusion -ne 'success') { throw "Pinned run $run not verified" }
+            if ($LASTEXITCODE -ne 0) { throw "Unable to read pinned Actions run $run" }
+            Write-Host "Run ${run}: head_sha=$($record.head_sha), conclusion=$($record.conclusion), event=$($record.event)"
+            if ($record.head_sha -notin @($runHead, $testedTree) -or $record.conclusion -ne 'success' -or $record.event -ne 'pull_request') { throw "Pinned run $run not verified" }
           }
-          "TESTED_SHA=$expected" | Out-File $env:GITHUB_ENV -Append
+          "TESTED_SHA=$testedTree" | Out-File $env:GITHUB_ENV -Append
       - name: Install pinned NSIS
         shell: pwsh
         run: |
@@ -34,7 +39,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force pinned,stage,output | Out-Null
-          gh run download 42320214210 -n AHR-WWV-v8.0.0-win64-DLL-test -D pinned
+          gh run download 43104513833 -n AHR-WWV-v8.0.0-win64-DLL-test -D pinned
           if ($LASTEXITCODE -ne 0) { throw 'Pinned DLL artifact fetch failed' }
           $z = @(Get-ChildItem pinned -Filter '*.zip')
           if ($z.Count -ne 1) { throw 'Expected one DLL archive' }
@@ -68,7 +73,7 @@ jobs:
           $file = "AHR-Decoder-$version-SDRangel-8.0.0-x64-Setup.exe"
           $nsis = 'C:\Program Files (x86)\NSIS\makensis.exe'
           if (!(Test-Path $nsis)) { throw 'Pinned makensis missing' }
-          & $nsis "/DSTAGE=$stage" "/DOUTPUT=$outputDir/$file" "/DAPPVERSION=$version" "/DDLLHASH=$env:DLL_HASH" "/DBUILDCOMMIT=$env:TESTED_SHA" packaging/AHR-Decoder.nsi
+          & $nsis "/DSTAGE=$stage" "/DOUTPUT=$outputDir/$file" "/DAPPVERSION=$version" "/DDLLHASH=$env:DLL_HASH" "/DBUILDCOMMIT=$env:TESTED_SHA" "/DBUILDRUN=43104513833" packaging/AHR-Decoder.nsi
           if ($LASTEXITCODE -ne 0) { throw 'NSIS compile failed' }
           @"
           AHR-Decoder $version — WWV/WWVH time decoder for official SDRangel 8.0.0 x64.
@@ -77,20 +82,23 @@ jobs:
           For manual install copy ahrwwvtimedecoder.dll to the SDRangel plugins\ folder.
           This DLL never sets the Windows clock.
           Built DLL commit $env:TESTED_SHA
-          DLL run: https://github.com/KL5NE/AHR-WWV-Decoder/actions/runs/42320214210
+          DLL run: https://github.com/KL5NE/AHR-WWV-Decoder/actions/runs/43104513833
           Source: https://github.com/KL5NE/AHR-WWV-Decoder
           "@ | Set-Content output/README.txt
           Copy-Item stage/ahrwwvtimedecoder.dll output/ahrwwvtimedecoder.dll
           Copy-Item LICENSE output/LICENSE
           Compress-Archive output/README.txt,output/ahrwwvtimedecoder.dll,output/LICENSE "output/AHR-Decoder-$version-SDRangel-8.0.0-x64-Manual.zip" -Force
           Remove-Item output/README.txt,output/ahrwwvtimedecoder.dll,output/LICENSE
-          [ordered]@{version=$version;dllCommit=$env:TESTED_SHA;dllRun=42320214210;coreRun=42320214256;capiRun=42320214538;dllSha256=$env:DLL_HASH;officialHostAssetSha256='17e1cb158d0e263ed713e76930babce5458b7954a53ed0213770f6f37c66d7c2';officialHostExeSha256=$env:HOST_HASH;vmAcceptance='NOT VERIFIED'} | ConvertTo-Json | Set-Content output/PROVENANCE.json
+          [ordered]@{version=$version;dllCommit=$env:TESTED_SHA;dllRun=43104513833;coreRun=43104513923;capiRun=43104514184;dllSha256=$env:DLL_HASH;officialHostAssetSha256='17e1cb158d0e263ed713e76930babce5458b7954a53ed0213770f6f37c66d7c2';officialHostExeSha256=$env:HOST_HASH;vmAcceptance='PENDING_RUN'} | ConvertTo-Json | Set-Content output/PROVENANCE.json
           Get-ChildItem output -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content output/SHA256SUMS.txt
       - name: Disposable Windows runner VM acceptance (official v8.0.0 host)
         shell: pwsh
         run: |
           & packaging/vm-acceptance.ps1
           if ($LASTEXITCODE -ne 0) { throw 'VM safety tests failed' }
+          $prov = Get-Content output/PROVENANCE.json -Raw | ConvertFrom-Json
+          $prov.vmAcceptance = 'PASSED_WITH_NOT_RUN_CASES'
+          $prov | ConvertTo-Json | Set-Content output/PROVENANCE.json
           Get-ChildItem output -File | Where-Object Name -ne 'SHA256SUMS.txt' | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content output/SHA256SUMS.txt
       - name: Upload VM test report even on failure
         if: always()
@@ -103,7 +111,7 @@ jobs:
       - name: Upload unsigned beta for disposable-VM evaluation (NOT production)
         uses: actions/upload-artifact@v4
         with:
-          name: AHR-Decoder-0.9.1-beta-VM-UNVERIFIED
+          name: AHR-Decoder-0.9.2-beta-VM-UNVERIFIED
           path: output/*
           if-no-files-found: error
           retention-days: 30
