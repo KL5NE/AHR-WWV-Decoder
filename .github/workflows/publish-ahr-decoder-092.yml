@@ -1,0 +1,96 @@
+name: Publish AHR-Decoder 0.9.2-beta (HAMBEAST-approved)
+on:
+  push:
+    branches: ['installer/ahr-decoder-0.9.1-beta-c1']
+    paths: ['.github/workflows/publish-ahr-decoder-092.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release ref and source code identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/installer/ahr-decoder-0.9.1-beta-c1'
+          # Release commit must retain EXACT decoder core and SDRangel plugin
+          # from tested holdover-guard PR head; packaging/docs may differ.
+          git diff --exit-code d9fb2f75d777d114314556a02f4e36636c456a34 HEAD -- core/ plugin/
+          test "$(cat packaging/VERSION.txt)" = '0.9.2-beta'
+      - name: Verify the four approved Actions runs and recorded source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in 43104513833 43104513923 43104514184 43119319819; do
+            conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq '.conclusion')"
+            test "$conclusion" = success
+          done
+          head="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/43104513833" --jq '.head_sha')"
+          test "$head" = d9fb2f75d777d114314556a02f4e36636c456a34
+      - name: Download and validate the exact approved installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download 43119319819 -n AHR-Decoder-0.9.2-beta-VM-UNVERIFIED -D dist
+          test -f dist/AHR-Decoder-0.9.2-beta-SDRangel-8.0.0-x64-Setup.exe
+          test -f dist/AHR-Decoder-0.9.2-beta-SDRangel-8.0.0-x64-Manual.zip
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+          unzip -p dist/AHR-Decoder-0.9.2-beta-SDRangel-8.0.0-x64-Manual.zip ahrwwvtimedecoder.dll | sha256sum | grep -F '87e8b179e38f1f0bada44d5f0e6e66ed9dc4a05dd5068479f6fd4a3da65cc9b7'
+          test "$(jq -r .version dist/PROVENANCE.json)" = '0.9.2-beta'
+          test "$(jq -r .dllRun dist/PROVENANCE.json)" = '43104513833'
+      - name: Add independently documented live acceptance and user guide
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp docs/AHR-DECODER-0.9.2-USER-GUIDE.md dist/USER-GUIDE.md
+          cp docs/HAMBEAST-WINDOWS-TEST.md dist/HAMBEAST-ACCEPTANCE.md
+          jq '. + {liveAcceptance: "GO", liveAcceptanceDateUTC: "2026-11-12", liveAcceptanceHost: "HAMBEAST, Windows 11 25H2 / SDRangel 8.0.0", liveAcceptanceNote: "Three live 10 MHz VERIFIED acquisitions; HOLDOVER trusted UTC and clock comparison withheld; per-second event label CI-only"}' dist/PROVENANCE.json > dist/PROVENANCE.new.json
+          mv dist/PROVENANCE.new.json dist/PROVENANCE.json
+          (cd dist && sha256sum AHR-Decoder-0.9.2-beta-SDRangel-8.0.0-x64-Setup.exe AHR-Decoder-0.9.2-beta-SDRangel-8.0.0-x64-Manual.zip PROVENANCE.json USER-GUIDE.md HAMBEAST-ACCEPTANCE.md > SHA256SUMS.txt)
+      - name: Publish prerelease with verified binaries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.9.2-beta >/dev/null 2>&1; then
+            echo 'Release tag already exists; refusing to overwrite or republish'
+            exit 1
+          fi
+          cat > release-notes.txt <<'NOTES'
+          AHR-Decoder 0.9.2-beta — open-source WWV/WWVH time decoder.
+          
+          **Field-tested on HAMBEAST** (Windows 11 x64, SDRangel 8.0.0) on 12 Nov 2026 UTC.
+          Three VERIFIED WWV/WWVH acquisitions on 10 MHz; no incorrect trusted UTC observed.
+          HOLDOVER correctly blanks public UTC and PC offset until re-verification.
+          Core Linux/Windows CI, Windows SDRangel plugin integration, C API, and 9 installer VM tests all passed.
+          
+          **Use the Setup EXE on official SDRangel 8.0.0 Windows x64 only.**
+          The executable is unsigned; verify SHA256SUMS.txt before running.
+          The installed decoder DLL SHA-256 is:
+          `87e8b179e38f1f0bada44d5f0e6e66ed9dc4a05dd5068479f6fd4a3da65cc9b7`.
+          
+          Download and read USER-GUIDE.md. The original field-tested installer and manual ZIP
+          are unchanged. PROVENANCE.json is supplemented with the independently observed live
+          acceptance result, and SHA256SUMS.txt covers the complete release asset set.
+          
+          Limitations: no REST/web status API; Windows SDRangel 8.0.0 only;
+          some installer fault-injection tests were not run; no automatic clock setting.
+          The software is free/open-source; community contributions and forks are welcome
+          subject to the repository and upstream licenses. This is a **pre-release**, not 1.0.
+          NOTES
+          gh release create v0.9.2-beta dist/* --target "$GITHUB_SHA" --title "AHR-Decoder 0.9.2-beta — HAMBEAST-verified" --notes-file release-notes.txt --prerelease
